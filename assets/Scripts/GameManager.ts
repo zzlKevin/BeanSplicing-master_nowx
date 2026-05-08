@@ -15,6 +15,7 @@ import { ChartController } from './ChartController';
 import { ShopController } from './ShopController';
 import { UserInfo } from './UserInfo';
 import { RoadController } from './RoadController';
+import { isWechat } from './PlatformUtils';
 const { ccclass, property } = _decorator;
 
 /**

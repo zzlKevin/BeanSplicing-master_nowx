@@ -2,11 +2,13 @@ import { _decorator, Component } from 'cc';
 import { GameManager, DifficultyMode } from './GameManager';
 import CloudbaseDBService, { callFunction } from './CloudbaseService';
 import { WXManager } from './WXManager';
+import { sys } from 'cc';
+import { isWechat } from './PlatformUtils';
 
 const { ccclass, property } = _decorator;
 
 // 微信小游戏全局对象类型声明
-declare const wx: any;
+// declare const wx: any; // [LocalMode] Removed - using sys.localStorage
 
 // 集合名称常量
 const COLLECTION_DIFFICULTY_SUMMARY = 'player_difficulty_summary';
@@ -395,10 +397,8 @@ export class PlayerService extends Component {
      */
     public getCachedLevel(difficulty: DifficultyMode): number {
         const key = `level_${difficulty}`;
-        if (typeof (wx) !== 'undefined') {
-            return wx.getStorageSync(key) || 1;
-        }
-        return 1;
+        const val = sys.localStorage.getItem(key);
+        return val ? parseInt(val, 10) || 1 : 1;
     }
 
     /**
@@ -408,9 +408,7 @@ export class PlayerService extends Component {
      */
     public setCachedLevel(difficulty: DifficultyMode, level: number): void {
         const key = `level_${difficulty}`;
-        if (typeof (wx) !== 'undefined') {
-            wx.setStorageSync(key, level);
-        }
+        sys.localStorage.setItem(key, String(level));
     }
 
     /**

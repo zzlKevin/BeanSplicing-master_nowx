@@ -5,6 +5,8 @@ import { ShopRuntimeData } from './ShopConfig';
 import { UserInfo } from './UserInfo';
 import type { RoadPassRewardClaimState } from './RoadController';
 import { AudioManager } from './AudioManager';
+import { sys } from 'cc';
+import { isWechat } from './PlatformUtils';
 const { ccclass, property} = _decorator;
 
 // 微信小游戏全局对象类型声明
@@ -93,9 +95,7 @@ export class WXManager extends Component {
     private readonly VIDEO_AD_UNIT_ID: string = 'adunit-f7349bec4122701f';
     private readonly INTERSTITIAL_AD_UNIT_ID: string = 'adunit-613709c057d35ead';
     // 是否为调试模式（正式版但广告位为 test123 时启用）
-    // private isDebugMode: boolean = false;
-    private isDebugMode: boolean = true;
-
+    private isDebugMode: boolean = false;
 
     // 分享图片 ID（在微信公众平台「增长入口」→「小程序分享图」上传获取）
     private _imageUrlId: string = 'qGwwwryFRtmUgxcDjf2p3w==';
@@ -108,11 +108,10 @@ export class WXManager extends Component {
         this.showShareMenu();
         // imageUrlId、imageUrl：在微信公众平台「增长入口」→「小程序分享图」上传后获得的图片 ID 和图片 URL
         this.onShareAppMessage('快来和我一起拼豆！');
-        //注释广告
-        // if (!this.isDebugMode) {
-        //     this.createRewardedVideoAd();
-        //     this.createInterstitialAd();
-        // }
+        if (!this.isDebugMode) {
+            this.createRewardedVideoAd();
+            this.createInterstitialAd();
+        }
     }
 
     // ========== 激励视频广告 ==========
@@ -122,7 +121,7 @@ export class WXManager extends Component {
 
     private ensureUserProfileLoadedFromCache(): UserInfo | null {
         const userInfo = this.getUserInfoModel();
-        if (!userInfo || typeof (wx) === 'undefined') {
+        if (!userInfo || !isWechat()) {
             return userInfo;
         }
 
@@ -130,8 +129,8 @@ export class WXManager extends Component {
             return userInfo;
         }
 
-        const nickname = String(wx.getStorageSync(WXManager.USER_NICKNAME_STORAGE_KEY) || '').trim();
-        const avatarUrl = String(wx.getStorageSync(WXManager.USER_AVATAR_URL_STORAGE_KEY) || '').trim();
+        const nickname = String(sys.localStorage.getItem(WXManager.USER_NICKNAME_STORAGE_KEY) || '').trim();
+        const avatarUrl = String(sys.localStorage.getItem(WXManager.USER_AVATAR_URL_STORAGE_KEY) || '').trim();
         if (UserInfo.isRealUserProfile(nickname, avatarUrl)) {
             userInfo.setProfile(nickname, avatarUrl);
         }
@@ -145,12 +144,10 @@ export class WXManager extends Component {
      * 创建激励视频广告
      */
     private createRewardedVideoAd(): void {
-        if (typeof (wx) === 'undefined') return;
+        // [LocalMode] Using sys.localStorage instead of wx storage
 
         try {
-            this.rewardedVideoAd = wx.createRewardedVideoAd({
-                adUnitId: this.VIDEO_AD_UNIT_ID
-            });
+            this.rewardedVideoAd = null;
 
             this.rewardedVideoAd.onLoad(() => {
                 console.log('激励视频广告加载完成');
@@ -183,14 +180,7 @@ export class WXManager extends Component {
      * @param callback 播放结束后的回调，参数表示是否完整看完
      */
     public showRewardedVideoAd(callback: (success: boolean) => void): void {
-        // ✅ 添加测试模式：非微信环境 或 调试模式 下，直接模拟成功
-        if (typeof wx === 'undefined' || this.isDebugMode) {
-            console.log('[WXManager] 模拟激励视频广告：直接发放奖励');
-            callback?.(true);
-            return;
-        }
-        
-        if (typeof (wx) === 'undefined') {
+        if (!isWechat()) {
             callback?.(true);
             return;
         }
@@ -236,13 +226,13 @@ export class WXManager extends Component {
      * 打开游戏圈
      */
     public openGameClub(): void {
-        if (typeof (wx) === 'undefined') return;
+        // [LocalMode] Using sys.localStorage instead of wx storage
         if (!this.gameClubOpenLink) {
             console.warn('游戏圈 openLink 未设置，请先调用 setGameClubOpenLink 设置');
             return;
         }
 
-        const pageManager = wx.createPageManager();
+        const pageManager = null;
         pageManager.load({
             openlink: this.gameClubOpenLink
         }).then((res: any) => {
@@ -260,13 +250,11 @@ export class WXManager extends Component {
      * 创建插屏广告
      */
     private createInterstitialAd(): void {
-        if (typeof (wx) === 'undefined') return;
+        // [LocalMode] Using sys.localStorage instead of wx storage
         if (typeof wx.createInterstitialAd !== 'function') return;
 
         try {
-            this.interstitialAd = wx.createInterstitialAd({
-                adUnitId: this.INTERSTITIAL_AD_UNIT_ID
-            });
+            this.interstitialAd = null;
 
             this.interstitialAd.onLoad(() => {
                 console.log('插屏广告加载完成');
@@ -288,7 +276,7 @@ export class WXManager extends Component {
      * 显示插屏广告
      */
     public async showInterstitialAd(): Promise<boolean> {
-        if (typeof (wx) === 'undefined') return false;
+        if (!isWechat()) return false;
         if (this.isDebugMode) return false;
         if (!this.interstitialAd) {
             console.warn('插屏广告未创建');
@@ -296,7 +284,7 @@ export class WXManager extends Component {
         }
 
         const now = Date.now();
-        const lastShowAt = Number(wx.getStorageSync(this.INTERSTITIAL_LAST_SHOW_STORAGE_KEY)) || 0;
+        const lastShowAt = Number(sys.localStorage.getItem(this.INTERSTITIAL_LAST_SHOW_STORAGE_KEY)) || 0;
         if (lastShowAt > 0 && now - lastShowAt < this.INTERSTITIAL_MIN_INTERVAL) {
             console.log('[Interstitial] skip show due to cooldown', {
                 now,
@@ -308,13 +296,13 @@ export class WXManager extends Component {
 
         try {
             await this.interstitialAd.show();
-            wx.setStorageSync(this.INTERSTITIAL_LAST_SHOW_STORAGE_KEY, now);
+            sys.localStorage.setItem(this.INTERSTITIAL_LAST_SHOW_STORAGE_KEY, String(now));
             return true;
         } catch {
             try {
                 await this.interstitialAd.load();
                 await this.interstitialAd.show();
-                wx.setStorageSync(this.INTERSTITIAL_LAST_SHOW_STORAGE_KEY, now);
+                sys.localStorage.setItem(this.INTERSTITIAL_LAST_SHOW_STORAGE_KEY, String(now));
                 return true;
             } catch (err: any) {
                 console.warn('插屏广告显示失败:', err);
@@ -328,25 +316,25 @@ export class WXManager extends Component {
     }
 
     private getGameEvaluationRecommendedFromStorage(): boolean {
-        if (typeof (wx) === 'undefined') {
+        if (!isWechat()) {
             return false;
         }
 
-        return !!wx.getStorageSync(WXManager.GAME_EVALUATION_RECOMMENDED_STORAGE_KEY);
+        return !!sys.localStorage.getItem(WXManager.GAME_EVALUATION_RECOMMENDED_STORAGE_KEY);
     }
 
     public setGameEvaluationRecommended(value: boolean): void {
         this._gameEvaluationRecommended = !!value;
-        if (typeof (wx) === 'undefined') {
+        if (!isWechat()) {
             return;
         }
 
         if (this._gameEvaluationRecommended) {
-            wx.setStorageSync(WXManager.GAME_EVALUATION_RECOMMENDED_STORAGE_KEY, 1);
+            sys.localStorage.setItem(WXManager.GAME_EVALUATION_RECOMMENDED_STORAGE_KEY, String(1));
             return;
         }
 
-        wx.removeStorageSync(WXManager.GAME_EVALUATION_RECOMMENDED_STORAGE_KEY);
+        sys.localStorage.removeItem(WXManager.GAME_EVALUATION_RECOMMENDED_STORAGE_KEY);
     }
 
     public tryShowGameEvaluation(): void {
@@ -354,12 +342,12 @@ export class WXManager extends Component {
             return;
         }
 
-        if (typeof (wx) === 'undefined') {
+        if (!isWechat()) {
             return;
         }
 
         try {
-            const pageManager = wx.createPageManager();
+            const pageManager = null;
 
             pageManager.on('destroy', (result) => {
                 if (result?.isRecommended) {
@@ -392,7 +380,7 @@ export class WXManager extends Component {
         withShareTicket: boolean = false,
         menus: string[] = ['shareAppMessage', 'shareTimeline']
     ): void {
-        if (typeof (wx) === 'undefined') return;
+        if (!isWechat()) return;
 
         try {
             wx.showShareMenu?.({
@@ -410,7 +398,7 @@ export class WXManager extends Component {
      * 隐藏分享菜单
      */
     public hideShareMenu(): void {
-        if (typeof (wx) === 'undefined') return;
+        if (!isWechat()) return;
 
         try {
             wx.hideShareMenu?.({
@@ -427,9 +415,9 @@ export class WXManager extends Component {
      * @param title 分享标题，默认使用小程序名称
      */
     public onShareAppMessage(title?: string): void {
-        if (typeof (wx) === 'undefined') return;
+        // [LocalMode] Using sys.localStorage instead of wx storage
 
-        wx.onShareAppMessage(() => ({
+        console.log('[LocalMode] onShareAppMessage skipped') => ({
             title: title ?? '',
             imageUrlId: this._imageUrlId,
             imageUrl: this._imageUrl,
@@ -456,8 +444,9 @@ export class WXManager extends Component {
         title: string,
         withShareTicket: boolean = false
     ): Promise<void> {
+        if (!isWechat()) return Promise.resolve();
         return new Promise((resolve, reject) => {
-            if (typeof (wx) === 'undefined') {
+            if (!isWechat()) {
                 reject(new Error('不在微信小游戏环境中'));
                 return;
             }
@@ -483,7 +472,7 @@ export class WXManager extends Component {
      * 设置截屏/录屏时隐藏画面
      */
     public setCaptureRestricted(): void {
-        if (typeof (wx) === 'undefined') return;
+        if (!isWechat()) return;
 
         try {
             // wx.setVisualEffectOnCapture?.({
@@ -500,8 +489,9 @@ export class WXManager extends Component {
      * 恢复截屏/录屏正常显示
      */
     public setCaptureNone(): void {
-        if (typeof (wx) === 'undefined') return;
+        // [LocalMode] Using sys.localStorage instead of wx storage
 
+        if (!isWechat()) return;
         try {
             wx.setVisualEffectOnCapture?.({
                 visualEffect: 'none',
@@ -525,52 +515,41 @@ export class WXManager extends Component {
     }
 
     public async getStorageLevel(): Promise<number | null> {
-        if (typeof (wx) === 'undefined') {
-            console.warn('不在微信小游戏环境中');
-            return null;
-        }
+        // [LocalMode] Using sys.localStorage instead of wx storage
         
         return new Promise((resolve) => {
-            wx.getStorage({
-                key: 'level',
-                success (res) {
-                    resolve(res.data);
-                },
-                fail () {
-                    console.log('getStorageLevel fail');
-                    resolve(null);
-                }
-            });
+            new Promise((resolve) => {
+            const val = sys.localStorage.getItem('level');
+            if (val !== null && val !== undefined && val !== '') {
+                try { resolve(JSON.parse(val)); } catch { resolve(val); }
+            } else {
+                resolve(null);
+            }
+        });
         });
     }
 
     public setStorageLevel(level){
-        if (typeof (wx) === 'undefined') {
-            console.warn('不在微信小游戏环境中');
-            return null;
-        }
+        // [LocalMode] Using sys.localStorage instead of wx storage
 
-        wx.setStorageSync('level', level);
+        sys.localStorage.setItem('level', String(level));
     }
 
     /**
      * 清除所有难度的关卡缓存
      */
     public clearStorageLevel(): void {
-        if (typeof (wx) === 'undefined') {
-            console.warn('不在微信小游戏环境中');
-            return;
-        }
+        // [LocalMode] Using sys.localStorage instead of wx storage
 
-        wx.removeStorageSync('level_simple');
-        wx.removeStorageSync('level_medium');
-        wx.removeStorageSync('level_hard');
-        wx.removeStorageSync(this.getBookUnlockedIdsStorageKey(DifficultyMode.SIMPLE));
-        wx.removeStorageSync(this.getBookUnlockedIdsStorageKey(DifficultyMode.MEDIUM));
-        wx.removeStorageSync(this.getBookUnlockedIdsStorageKey(DifficultyMode.HARD));
-        wx.removeStorageSync(this.getBookProgressRewardStorageKey(DifficultyMode.SIMPLE));
-        wx.removeStorageSync(this.getBookProgressRewardStorageKey(DifficultyMode.MEDIUM));
-        wx.removeStorageSync(this.getBookProgressRewardStorageKey(DifficultyMode.HARD));
+        sys.localStorage.removeItem('level_simple');
+        sys.localStorage.removeItem('level_medium');
+        sys.localStorage.removeItem('level_hard');
+        sys.localStorage.removeItem(this.getBookUnlockedIdsStorageKey(DifficultyMode.SIMPLE));
+        sys.localStorage.removeItem(this.getBookUnlockedIdsStorageKey(DifficultyMode.MEDIUM));
+        sys.localStorage.removeItem(this.getBookUnlockedIdsStorageKey(DifficultyMode.HARD));
+        sys.localStorage.removeItem(this.getBookProgressRewardStorageKey(DifficultyMode.SIMPLE));
+        sys.localStorage.removeItem(this.getBookProgressRewardStorageKey(DifficultyMode.MEDIUM));
+        sys.localStorage.removeItem(this.getBookProgressRewardStorageKey(DifficultyMode.HARD));
         console.log('已清除所有难度关卡缓存');
     }
 
@@ -578,72 +557,71 @@ export class WXManager extends Component {
      * 按难度保存关卡数
      */
     public setStorageLevelByDifficulty(difficulty: DifficultyMode, level: number): void {
-        if (typeof (wx) === 'undefined') return;
-        wx.setStorageSync(`level_${difficulty}`, level);
+        // [LocalMode] Using sys.localStorage instead of wx storage
+        sys.localStorage.setItem(`level_${difficulty}`, String(level));
     }
 
     /**
      * 按难度获取关卡数
      */
     public getStorageLevelByDifficulty(difficulty: DifficultyMode): Promise<number | null> {
-        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        // [LocalMode] Using sys.localStorage instead of wx storage
         return new Promise((resolve) => {
-            wx.getStorage({
-                key: `level_${difficulty}`,
-                success(res) {
-                    resolve(res.data);
-                },
-                fail() {
-                    resolve(null);
-                }
-            });
+            new Promise((resolve) => {
+            const val = sys.localStorage.getItem(`level_${difficulty}`);
+            if (val !== null && val !== undefined && val !== '') {
+                try { resolve(JSON.parse(val)); } catch { resolve(val); }
+            } else {
+                resolve(null);
+            }
+        });
         });
     }
 
     public setBookUnlockedIdsByDifficulty(difficulty: DifficultyMode, ids: number[]): void {
-        if (typeof (wx) === 'undefined') return;
-        wx.setStorageSync(this.getBookUnlockedIdsStorageKey(difficulty), this.normalizeOwnedIds(ids));
+        // [LocalMode] Using sys.localStorage instead of wx storage
+        sys.localStorage.setItem(this.getBookUnlockedIdsStorageKey(difficulty), String(this.normalizeOwnedIds(ids)));
     }
 
     public getBookUnlockedIdsByDifficulty(difficulty: DifficultyMode): Promise<number[] | null> {
-        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        // [LocalMode] Using sys.localStorage instead of wx storage
         return this.getOwnedIdsFromStorage(this.getBookUnlockedIdsStorageKey(difficulty));
     }
 
     public addBookUnlockedIdsByDifficulty(difficulty: DifficultyMode, ids: number[]): void {
-        if (typeof (wx) === 'undefined') return;
+        // [LocalMode] Using sys.localStorage instead of wx storage
         const key = this.getBookUnlockedIdsStorageKey(difficulty);
-        const currentIds = this.normalizeOwnedIds(wx.getStorageSync(key));
-        wx.setStorageSync(key, this.normalizeOwnedIds([...currentIds, ...ids]));
+        const currentIds = this.normalizeOwnedIds(sys.localStorage.getItem(key));
+        sys.localStorage.setItem(key, String(this.normalizeOwnedIds([...currentIds, ...ids])));
     }
 
     public setBookProgressRewardStatesByDifficulty(
         difficulty: DifficultyMode,
         states: { progress: number; claimed: boolean }[]
     ): void {
-        if (typeof (wx) === 'undefined') return;
-        wx.setStorageSync(this.getBookProgressRewardStorageKey(difficulty), this.normalizeBookProgressRewardStates(states));
+        // [LocalMode] Using sys.localStorage instead of wx storage
+        sys.localStorage.setItem(this.getBookProgressRewardStorageKey(difficulty), String(this.normalizeBookProgressRewardStates(states)));
     }
 
     public getBookProgressRewardStatesByDifficulty(
         difficulty: DifficultyMode
     ): Promise<{ progress: number; claimed: boolean }[] | null> {
-        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        // [LocalMode] Using sys.localStorage instead of wx storage
         return new Promise((resolve) => {
-            wx.getStorage({
-                key: this.getBookProgressRewardStorageKey(difficulty),
-                success: (res) => {
-                    resolve(this.normalizeBookProgressRewardStates(res.data));
-                },
-                fail: () => {
+            const val = sys.localStorage.getItem(this.getBookProgressRewardStorageKey(difficulty));
+            if (val !== null && val !== undefined && val !== '') {
+                try {
+                    resolve(this.normalizeBookProgressRewardStates(JSON.parse(val)));
+                } catch (e) {
                     resolve(null);
                 }
-            });
+            } else {
+                resolve(null);
+            }
         });
-    }
 
     public getBookProgressRewardClaimedProgressesByDifficulty(difficulty: DifficultyMode): Promise<number[] | null> {
-        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        // [LocalMode] Using sys.localStorage instead of wx storage
         return this.getBookProgressRewardStatesByDifficulty(difficulty).then((states) => {
             if (!states) {
                 return null;
@@ -660,9 +638,9 @@ export class WXManager extends Component {
         progress: number,
         claimed: boolean = true
     ): void {
-        if (typeof (wx) === 'undefined') return;
+        // [LocalMode] Using sys.localStorage instead of wx storage
         const key = this.getBookProgressRewardStorageKey(difficulty);
-        const states = this.normalizeBookProgressRewardStates(wx.getStorageSync(key));
+        const states = this.normalizeBookProgressRewardStates(sys.localStorage.getItem(key));
         const safeProgress = Math.max(0, Math.floor(Number(progress) || 0));
         if (safeProgress <= 0) {
             return;
@@ -674,7 +652,7 @@ export class WXManager extends Component {
         } else {
             states.push({ progress: safeProgress, claimed });
         }
-        wx.setStorageSync(key, this.normalizeBookProgressRewardStates(states));
+        sys.localStorage.setItem(key, String(this.normalizeBookProgressRewardStates(states)));
     }
 
     /**
@@ -684,10 +662,8 @@ export class WXManager extends Component {
     public vibrateShort(
         type: 'heavy' | 'medium' | 'light' = 'medium'
     ): void {
-        if (typeof (wx) === 'undefined') {
-            console.warn('不在微信小游戏环境中');
-            return;
-        }
+        if (!isWechat()) return;
+        // [LocalMode] Using sys.localStorage instead of wx storage
 
         if (typeof wx.vibrateShort !== 'function') {
             console.warn('wx.vibrateShort 不可用');
@@ -706,31 +682,23 @@ export class WXManager extends Component {
     }
 
     public setShake(isShake: boolean){
-        if (typeof (wx) === 'undefined') {
-            console.warn('不在微信小游戏环境中');
-            return null;
-        }
+        // [LocalMode] Using sys.localStorage instead of wx storage
 
-        wx.setStorageSync('shake', isShake == true ? 1 : 0);
+        sys.localStorage.setItem('shake', String(isShake == true ? 1 : 0));
     }
 
     public getShake(): Promise<number | null>{
-        if (typeof (wx) === 'undefined') {
-            console.warn('不在微信小游戏环境中');
-            return null;
-        }
+        // [LocalMode] Using sys.localStorage instead of wx storage
 
         return new Promise((resolve) => {
-            wx.getStorage({
-                key: 'shake',
-                success (res) {
-                    resolve(res.data);
-                },
-                fail () {
-                    console.log('getShake fail');
-                    resolve(null);
-                }
-            });
+            new Promise((resolve) => {
+            const val = sys.localStorage.getItem('shake');
+            if (val !== null && val !== undefined && val !== '') {
+                try { resolve(JSON.parse(val)); } catch { resolve(val); }
+            } else {
+                resolve(null);
+            }
+        });
         });
     }
 
@@ -739,12 +707,9 @@ export class WXManager extends Component {
      * @param handSetting -1:左手  1:右手
      */
     public setHandSetting(handSetting: number): void {
-        if (typeof (wx) === 'undefined') {
-            console.warn('不在微信小游戏环境中');
-            return;
-        }
+        // [LocalMode] Using sys.localStorage instead of wx storage
 
-        wx.setStorageSync('hand_setting', handSetting);
+        sys.localStorage.setItem('hand_setting', String(handSetting));
     }
 
     /**
@@ -752,22 +717,20 @@ export class WXManager extends Component {
      * @returns -1:左手  1:右手  null:未设置
      */
     public getHandSetting(): Promise<number | null> {
-        if (typeof (wx) === 'undefined') {
+        if (!isWechat()) {
             console.warn('不在微信小游戏环境中');
             return Promise.resolve(null);
         }
 
         return new Promise((resolve) => {
-            wx.getStorage({
-                key: 'hand_setting',
-                success (res) {
-                    resolve(res.data);
-                },
-                fail () {
-                    console.log('getHandSetting fail');
-                    resolve(null);
-                }
-            });
+            new Promise((resolve) => {
+            const val = sys.localStorage.getItem('hand_setting');
+            if (val !== null && val !== undefined && val !== '') {
+                try { resolve(JSON.parse(val)); } catch { resolve(val); }
+            } else {
+                resolve(null);
+            }
+        });
         });
     }
 
@@ -780,25 +743,24 @@ export class WXManager extends Component {
      * 设置音乐开关
      */
     public setMusic(isOn: boolean): void {
-        if (typeof (wx) === 'undefined') return;
-        wx.setStorageSync('music', isOn ? 1 : 0);
+        // [LocalMode] Using sys.localStorage instead of wx storage
+        sys.localStorage.setItem('music', String(isOn ? 1 : 0));
     }
 
     /**
      * 获取音乐开关
      */
     public getMusic(): Promise<number | null> {
-        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        // [LocalMode] Using sys.localStorage instead of wx storage
         return new Promise((resolve) => {
-            wx.getStorage({
-                key: 'music',
-                success(res) {
-                    resolve(res.data);
-                },
-                fail() {
-                    resolve(null);
-                }
-            });
+            new Promise((resolve) => {
+            const val = sys.localStorage.getItem('music');
+            if (val !== null && val !== undefined && val !== '') {
+                try { resolve(JSON.parse(val)); } catch { resolve(val); }
+            } else {
+                resolve(null);
+            }
+        });
         });
     }
 
@@ -806,25 +768,24 @@ export class WXManager extends Component {
      * 设置音效开关
      */
     public setAudio(isOn: boolean): void {
-        if (typeof (wx) === 'undefined') return;
-        wx.setStorageSync('audio', isOn ? 1 : 0);
+        // [LocalMode] Using sys.localStorage instead of wx storage
+        sys.localStorage.setItem('audio', String(isOn ? 1 : 0));
     }
 
     /**
      * 获取音效开关
      */
     public getAudio(): Promise<number | null> {
-        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        // [LocalMode] Using sys.localStorage instead of wx storage
         return new Promise((resolve) => {
-            wx.getStorage({
-                key: 'audio',
-                success(res) {
-                    resolve(res.data);
-                },
-                fail() {
-                    resolve(null);
-                }
-            });
+            new Promise((resolve) => {
+            const val = sys.localStorage.getItem('audio');
+            if (val !== null && val !== undefined && val !== '') {
+                try { resolve(JSON.parse(val)); } catch { resolve(val); }
+            } else {
+                resolve(null);
+            }
+        });
         });
     }
 
@@ -840,13 +801,10 @@ export class WXManager extends Component {
         byteArray: Uint8Array,
         background?: any
     ): void {
-        if (typeof (wx) === 'undefined') {
-            console.warn('不在微信小游戏环境中');
-            return;
-        }
+        // [LocalMode] Using sys.localStorage instead of wx storage
 
         // 创建离屏 canvas
-        const canvas = wx.createCanvas();
+        const canvas = document.createElement('canvas');
         const outputWidth = Math.max(1, Math.floor(background?.outputWidth ?? width));
         const outputHeight = Math.max(1, Math.floor(background?.outputHeight ?? height));
         canvas.width = outputWidth;
@@ -859,7 +817,7 @@ export class WXManager extends Component {
         }
 
         const drawResultLayer = () => {
-            const layerCanvas = wx.createCanvas();
+            const layerCanvas = document.createElement('canvas');
             layerCanvas.width = width;
             layerCanvas.height = height;
             const layerCtx = layerCanvas.getContext('2d') as any;
@@ -943,7 +901,7 @@ export class WXManager extends Component {
                 return;
             }
 
-            const image = canvas.createImage?.() ?? wx.createImage();
+            const image = canvas.createImage?.() ?? new Image();
             image.onload = () => {
                 ctx.drawImage(image, 0, 0, width, height);
                 onComplete();
@@ -961,6 +919,7 @@ export class WXManager extends Component {
     private exportCanvasToPhotosAlbum(canvas: any, width: number, height: number): void {
 
         // 将 canvas 导出为临时文件路径
+        if (!isWechat()) return;
         canvas.toTempFilePath({
             x: 0,
             y: 0,
@@ -982,11 +941,7 @@ export class WXManager extends Component {
                         console.warn('保存到相册失败:', err);
                         // 用户可能未授权，提示授权
                         if (err.errMsg && err.errMsg.includes('auth deny')) {
-                            wx.showModal({
-                                title: '提示',
-                                content: '需要您授权保存图片到相册，请在设置中开启权限',
-                                showCancel: false
-                            });
+                            Promise.resolve({ confirm: true, cancel: false });
                         }
                     }
                 });
@@ -1001,25 +956,24 @@ export class WXManager extends Component {
      * 设置能量
      */
     public setPower(power: number): void {
-        if (typeof (wx) === 'undefined') return;
-        wx.setStorageSync('power', power);
+        // [LocalMode] Using sys.localStorage instead of wx storage
+        sys.localStorage.setItem('power', String(power));
     }
 
     /**
      * 获取能量
      */
     public getPower(): Promise<number | null> {
-        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        // [LocalMode] Using sys.localStorage instead of wx storage
         return new Promise((resolve) => {
-            wx.getStorage({
-                key: 'power',
-                success(res) {
-                    resolve(res.data);
-                },
-                fail() {
-                    resolve(null);
-                }
-            });
+            new Promise((resolve) => {
+            const val = sys.localStorage.getItem('power');
+            if (val !== null && val !== undefined && val !== '') {
+                try { resolve(JSON.parse(val)); } catch { resolve(val); }
+            } else {
+                resolve(null);
+            }
+        });
         });
     }
 
@@ -1027,25 +981,24 @@ export class WXManager extends Component {
      * 保存金币数量到本地缓存
      */
     public setCoins(coins: number): void {
-        if (typeof (wx) === 'undefined') return;
-        wx.setStorageSync('coins', coins);
+        // [LocalMode] Using sys.localStorage instead of wx storage
+        sys.localStorage.setItem('coins', String(coins));
     }
 
     /**
      * 获取本地缓存的金币数量
      */
     public getCoins(): Promise<number | null> {
-        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        // [LocalMode] Using sys.localStorage instead of wx storage
         return new Promise((resolve) => {
-            wx.getStorage({
-                key: 'coins',
-                success(res) {
-                    resolve(res.data);
-                },
-                fail() {
-                    resolve(null);
-                }
-            });
+            new Promise((resolve) => {
+            const val = sys.localStorage.getItem('coins');
+            if (val !== null && val !== undefined && val !== '') {
+                try { resolve(JSON.parse(val)); } catch { resolve(val); }
+            } else {
+                resolve(null);
+            }
+        });
         });
     }
 
@@ -1053,93 +1006,100 @@ export class WXManager extends Component {
      * 保存经验值到本地缓存
      */
     public setExperience(experience: number): void {
-        if (typeof (wx) === 'undefined') return;
-        wx.setStorageSync('experience', Math.max(0, Math.floor(Number(experience) || 0)));
+        // [LocalMode] Using sys.localStorage instead of wx storage
+        sys.localStorage.setItem('experience', String(Math.max(0, Math.floor(Number(experience)) || 0)));
     }
 
     /**
      * 获取本地缓存的经验值
      */
     public getExperience(): Promise<number | null> {
-        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        // [LocalMode] Using sys.localStorage instead of wx storage
         return new Promise((resolve) => {
-            wx.getStorage({
-                key: 'experience',
-                success(res) {
-                    resolve(res.data);
-                },
-                fail() {
-                    resolve(null);
-                }
-            });
+            new Promise((resolve) => {
+            const val = sys.localStorage.getItem('experience');
+            if (val !== null && val !== undefined && val !== '') {
+                try { resolve(JSON.parse(val)); } catch { resolve(val); }
+            } else {
+                resolve(null);
+            }
+        });
         });
     }
 
     public setFixSkillCount(count: number): void {
-        if (typeof (wx) === 'undefined') return;
-        wx.setStorageSync('fix_skill_count', count);
+        // [LocalMode] Using sys.localStorage instead of wx storage
+        sys.localStorage.setItem('fix_skill_count', String(count));
     }
 
     public getFixSkillCount(): Promise<number | null> {
-        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        // [LocalMode] Using sys.localStorage instead of wx storage
         return new Promise((resolve) => {
-            wx.getStorage({
-                key: 'fix_skill_count',
-                success(res) {
-                    resolve(res.data);
-                },
-                fail() {
-                    resolve(null);
-                }
-            });
+            new Promise((resolve) => {
+            const val = sys.localStorage.getItem('fix_skill_count');
+            if (val !== null && val !== undefined && val !== '') {
+                try { resolve(JSON.parse(val)); } catch { resolve(val); }
+            } else {
+                resolve(null);
+            }
+        });
         });
     }
 
     public setTimeSkillCount(count: number): void {
-        if (typeof (wx) === 'undefined') return;
-        wx.setStorageSync('time_skill_count', count);
+        // [LocalMode] Using sys.localStorage instead of wx storage
+        sys.localStorage.setItem('time_skill_count', String(count));
     }
 
     public getTimeSkillCount(): Promise<number | null> {
-        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        // [LocalMode] Using sys.localStorage instead of wx storage
         return new Promise((resolve) => {
-            wx.getStorage({
-                key: 'time_skill_count',
-                success(res) {
-                    resolve(res.data);
-                },
-                fail() {
-                    resolve(null);
-                }
-            });
+            new Promise((resolve) => {
+            const val = sys.localStorage.getItem('time_skill_count');
+            if (val !== null && val !== undefined && val !== '') {
+                try { resolve(JSON.parse(val)); } catch { resolve(val); }
+            } else {
+                resolve(null);
+            }
+        });
         });
     }
 
     public setPaletteSkillCount(count: number): void {
-        if (typeof (wx) === 'undefined') return;
-        wx.setStorageSync('palette_skill_count', count);
+        // [LocalMode] Using sys.localStorage instead of wx storage
+        sys.localStorage.setItem('palette_skill_count', String(count));
     }
 
     public setRoadPassRewardClaimState(state: RoadPassRewardClaimState): void {
-        if (typeof (wx) === 'undefined') return;
-        wx.setStorageSync(
-            WXManager.ROAD_PASS_FREE_CLAIMED_LEVELS_STORAGE_KEY,
-            this.normalizeClaimedLevels(state?.freeClaimedLevels)
+        // [LocalMode] Using sys.localStorage instead of wx storage
+        sys.localStorage.setItem(
+            WXManager.ROAD_PASS_FREE_CLAIMED_LEVELS_STORAGE_KEY, String(this.normalizeClaimedLevels(state?.freeClaimedLevels))
         );
-        wx.setStorageSync(
-            WXManager.ROAD_PASS_PREMIUM_CLAIMED_LEVELS_STORAGE_KEY,
-            this.normalizeClaimedLevels(state?.premiumClaimedLevels)
+        sys.localStorage.setItem(
+            WXManager.ROAD_PASS_PREMIUM_CLAIMED_LEVELS_STORAGE_KEY, String(this.normalizeClaimedLevels(state?.premiumClaimedLevels))
         );
     }
 
     public async getRoadPassRewardClaimState(): Promise<RoadPassRewardClaimState | null> {
-        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        // [LocalMode] Using sys.localStorage instead of wx storage
 
         const [freeClaimedLevels, premiumClaimedLevels] = await Promise.all([
-            this.getClaimedLevelsFromStorage(WXManager.ROAD_PASS_FREE_CLAIMED_LEVELS_STORAGE_KEY),
-            this.getClaimedLevelsFromStorage(WXManager.ROAD_PASS_PREMIUM_CLAIMED_LEVELS_STORAGE_KEY)
-        ]);
-
+    private getClaimedLevelsFromStorage(key: string): Promise<number[] | null> {
+        // [LocalMode] Using sys.localStorage instead of wx storage
+        return new Promise((resolve) => {
+            const val = sys.localStorage.getItem(key);
+            if (val !== null && val !== undefined && val !== '') {
+                try {
+                    const normalizedLevels = this.normalizeClaimedLevels(JSON.parse(val));
+                    resolve(normalizedLevels.length > 0 ? normalizedLevels : null);
+                } catch (e) {
+                    resolve(null);
+                }
+            } else {
+                resolve(null);
+            }
+        });
+    }
         if (!freeClaimedLevels && !premiumClaimedLevels) {
             return null;
         }
@@ -1151,195 +1111,185 @@ export class WXManager extends Component {
     }
 
     public setRoadPassFreeRewardClaimed(level: number, claimed: boolean = true): void {
-        if (typeof (wx) === 'undefined') return;
+        // [LocalMode] Using sys.localStorage instead of wx storage
         this.setClaimedLevel(WXManager.ROAD_PASS_FREE_CLAIMED_LEVELS_STORAGE_KEY, level, claimed);
     }
 
     public setRoadPassPremiumRewardClaimed(level: number, claimed: boolean = true): void {
-        if (typeof (wx) === 'undefined') return;
+        // [LocalMode] Using sys.localStorage instead of wx storage
         this.setClaimedLevel(WXManager.ROAD_PASS_PREMIUM_CLAIMED_LEVELS_STORAGE_KEY, level, claimed);
     }
 
     public setRoadPassPremiumUnlocked(unlocked: boolean): void {
-        if (typeof (wx) === 'undefined') return;
-        wx.setStorageSync(WXManager.ROAD_PASS_PREMIUM_UNLOCKED_STORAGE_KEY, unlocked ? 1 : 0);
+        // [LocalMode] Using sys.localStorage instead of wx storage
+        sys.localStorage.setItem(WXManager.ROAD_PASS_PREMIUM_UNLOCKED_STORAGE_KEY, String(unlocked ? 1 : 0));
     }
 
     public getRoadPassPremiumUnlocked(): Promise<boolean | null> {
-        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        // [LocalMode] Using sys.localStorage instead of wx storage
         return new Promise((resolve) => {
-            wx.getStorage({
-                key: WXManager.ROAD_PASS_PREMIUM_UNLOCKED_STORAGE_KEY,
-                success(res) {
-                    resolve(Number(res.data) === 1 || res.data === true);
-                },
-                fail() {
-                    resolve(null);
-                }
-            });
+            new Promise((resolve) => {
+            const val = sys.localStorage.getItem(WXManager.ROAD_PASS_PREMIUM_UNLOCKED_STORAGE_KEY);
+            if (val !== null && val !== undefined && val !== '') {
+                try { resolve(JSON.parse(val)); } catch { resolve(val); }
+            } else {
+                resolve(null);
+            }
+        });
         });
     }
 
     public setRoadPassVideoWatchCount(count: number): void {
-        if (typeof (wx) === 'undefined') return;
-        wx.setStorageSync(
-            WXManager.ROAD_PASS_VIDEO_WATCH_COUNT_STORAGE_KEY,
-            Math.max(0, Math.floor(Number(count) || 0))
+        // [LocalMode] Using sys.localStorage instead of wx storage
+        sys.localStorage.setItem(
+            WXManager.ROAD_PASS_VIDEO_WATCH_COUNT_STORAGE_KEY, String(Math.max(0, Math.floor(Number(count)) || 0))
         );
     }
 
     public getRoadPassVideoWatchCount(): Promise<number | null> {
-        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        // [LocalMode] Using sys.localStorage instead of wx storage
         return new Promise((resolve) => {
-            wx.getStorage({
-                key: WXManager.ROAD_PASS_VIDEO_WATCH_COUNT_STORAGE_KEY,
-                success(res) {
-                    resolve(Math.max(0, Math.floor(Number(res.data) || 0)));
-                },
-                fail() {
-                    resolve(null);
-                }
-            });
+            new Promise((resolve) => {
+            const val = sys.localStorage.getItem(WXManager.ROAD_PASS_VIDEO_WATCH_COUNT_STORAGE_KEY);
+            if (val !== null && val !== undefined && val !== '') {
+                try { resolve(JSON.parse(val)); } catch { resolve(val); }
+            } else {
+                resolve(null);
+            }
+        });
         });
     }
 
     public getUserSex(): string {
-        if (typeof (wx) === 'undefined') {
+        if (!isWechat()) {
             return 'male';
         }
 
-        const sex = String(wx.getStorageSync(WXManager.USER_SEX_STORAGE_KEY) || '').trim();
+        const sex = String(sys.localStorage.getItem(WXManager.USER_SEX_STORAGE_KEY) || '').trim();
         return sex === 'female' ? 'female' : 'male';
     }
 
     public setUserSex(sex: string): void {
-        if (typeof (wx) === 'undefined') {
+        if (!isWechat()) {
             return;
         }
 
         const normalizedSex = sex === 'female' ? 'female' : 'male';
-        wx.setStorageSync(WXManager.USER_SEX_STORAGE_KEY, normalizedSex);
+        sys.localStorage.setItem(WXManager.USER_SEX_STORAGE_KEY, String(normalizedSex));
     }
 
     public setAuthorizedAvatarUrl(avatarUrl: string): void {
-        if (typeof (wx) === 'undefined') return;
+        // [LocalMode] Using sys.localStorage instead of wx storage
 
         const safeAvatarUrl = String(avatarUrl || '').trim();
         if (safeAvatarUrl) {
-            wx.setStorageSync(WXManager.USER_AUTHORIZED_AVATAR_URL_STORAGE_KEY, safeAvatarUrl);
+            sys.localStorage.setItem(WXManager.USER_AUTHORIZED_AVATAR_URL_STORAGE_KEY, String(safeAvatarUrl));
             return;
         }
 
-        wx.removeStorageSync(WXManager.USER_AUTHORIZED_AVATAR_URL_STORAGE_KEY);
+        sys.localStorage.removeItem(WXManager.USER_AUTHORIZED_AVATAR_URL_STORAGE_KEY);
     }
 
     public getAuthorizedAvatarUrl(): Promise<string | null> {
-        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        // [LocalMode] Using sys.localStorage instead of wx storage
         return new Promise((resolve) => {
-            wx.getStorage({
-                key: WXManager.USER_AUTHORIZED_AVATAR_URL_STORAGE_KEY,
-                success(res) {
-                    const avatarUrl = String(res.data || '').trim();
-                    resolve(avatarUrl || null);
-                },
-                fail() {
-                    resolve(null);
-                }
-            });
+            new Promise((resolve) => {
+            const val = sys.localStorage.getItem(WXManager.USER_AUTHORIZED_AVATAR_URL_STORAGE_KEY);
+            if (val !== null && val !== undefined && val !== '') {
+                try { resolve(JSON.parse(val)); } catch { resolve(val); }
+            } else {
+                resolve(null);
+            }
+        });
         });
     }
 
     public setCurrentAvatarSource(avatarSource: string): void {
-        if (typeof (wx) === 'undefined') return;
+        // [LocalMode] Using sys.localStorage instead of wx storage
 
         const safeAvatarSource = String(avatarSource || '').trim();
         if (safeAvatarSource) {
-            wx.setStorageSync(WXManager.USER_CURRENT_AVATAR_SOURCE_STORAGE_KEY, safeAvatarSource);
+            sys.localStorage.setItem(WXManager.USER_CURRENT_AVATAR_SOURCE_STORAGE_KEY, String(safeAvatarSource));
             return;
         }
 
-        wx.removeStorageSync(WXManager.USER_CURRENT_AVATAR_SOURCE_STORAGE_KEY);
+        sys.localStorage.removeItem(WXManager.USER_CURRENT_AVATAR_SOURCE_STORAGE_KEY);
     }
 
     public getCurrentAvatarSource(): Promise<string | null> {
-        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        // [LocalMode] Using sys.localStorage instead of wx storage
         return new Promise((resolve) => {
-            wx.getStorage({
-                key: WXManager.USER_CURRENT_AVATAR_SOURCE_STORAGE_KEY,
-                success(res) {
-                    const avatarSource = String(res.data || '').trim();
-                    resolve(avatarSource || null);
-                },
-                fail() {
-                    resolve(null);
-                }
-            });
+            new Promise((resolve) => {
+            const val = sys.localStorage.getItem(WXManager.USER_CURRENT_AVATAR_SOURCE_STORAGE_KEY);
+            if (val !== null && val !== undefined && val !== '') {
+                try { resolve(JSON.parse(val)); } catch { resolve(val); }
+            } else {
+                resolve(null);
+            }
+        });
         });
     }
 
     public setAvatarFrameId(id: number): void {
-        if (typeof (wx) === 'undefined') return;
-        wx.setStorageSync(WXManager.USER_AVATAR_FRAME_ID_STORAGE_KEY, Math.max(0, Math.floor(Number(id) || 0)));
+        // [LocalMode] Using sys.localStorage instead of wx storage
+        sys.localStorage.setItem(WXManager.USER_AVATAR_FRAME_ID_STORAGE_KEY, String(Math.max(0, Math.floor(Number(id)) || 0)));
     }
 
     public getAvatarFrameId(): Promise<number | null> {
-        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        // [LocalMode] Using sys.localStorage instead of wx storage
         return new Promise((resolve) => {
-            wx.getStorage({
-                key: WXManager.USER_AVATAR_FRAME_ID_STORAGE_KEY,
-                success(res) {
-                    resolve(Math.max(0, Math.floor(Number(res.data) || 0)));
-                },
-                fail() {
-                    resolve(null);
-                }
-            });
+            new Promise((resolve) => {
+            const val = sys.localStorage.getItem(WXManager.USER_AVATAR_FRAME_ID_STORAGE_KEY);
+            if (val !== null && val !== undefined && val !== '') {
+                try { resolve(JSON.parse(val)); } catch { resolve(val); }
+            } else {
+                resolve(null);
+            }
+        });
         });
     }
 
     public setTweezerId(id: number): void {
-        if (typeof (wx) === 'undefined') return;
-        wx.setStorageSync(WXManager.USER_TWEEZER_ID_STORAGE_KEY, Math.max(0, Math.floor(Number(id) || 0)));
+        // [LocalMode] Using sys.localStorage instead of wx storage
+        sys.localStorage.setItem(WXManager.USER_TWEEZER_ID_STORAGE_KEY, String(Math.max(0, Math.floor(Number(id)) || 0)));
     }
 
     public getTweezerId(): Promise<number | null> {
-        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        // [LocalMode] Using sys.localStorage instead of wx storage
         return new Promise((resolve) => {
-            wx.getStorage({
-                key: WXManager.USER_TWEEZER_ID_STORAGE_KEY,
-                success(res) {
-                    resolve(Math.max(0, Math.floor(Number(res.data) || 0)));
-                },
-                fail() {
-                    resolve(null);
-                }
-            });
+            new Promise((resolve) => {
+            const val = sys.localStorage.getItem(WXManager.USER_TWEEZER_ID_STORAGE_KEY);
+            if (val !== null && val !== undefined && val !== '') {
+                try { resolve(JSON.parse(val)); } catch { resolve(val); }
+            } else {
+                resolve(null);
+            }
+        });
         });
     }
 
     public setIronId(id: number): void {
-        if (typeof (wx) === 'undefined') return;
-        wx.setStorageSync(WXManager.USER_IRON_ID_STORAGE_KEY, Math.max(0, Math.floor(Number(id) || 0)));
+        // [LocalMode] Using sys.localStorage instead of wx storage
+        sys.localStorage.setItem(WXManager.USER_IRON_ID_STORAGE_KEY, String(Math.max(0, Math.floor(Number(id)) || 0)));
     }
 
     public getIronId(): Promise<number | null> {
-        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        // [LocalMode] Using sys.localStorage instead of wx storage
         return new Promise((resolve) => {
-            wx.getStorage({
-                key: WXManager.USER_IRON_ID_STORAGE_KEY,
-                success(res) {
-                    resolve(Math.max(0, Math.floor(Number(res.data) || 0)));
-                },
-                fail() {
-                    resolve(null);
-                }
-            });
+            new Promise((resolve) => {
+            const val = sys.localStorage.getItem(WXManager.USER_IRON_ID_STORAGE_KEY);
+            if (val !== null && val !== undefined && val !== '') {
+                try { resolve(JSON.parse(val)); } catch { resolve(val); }
+            } else {
+                resolve(null);
+            }
+        });
         });
     }
 
     public setOwnedAvatarIds(ids: number[]): void {
-        if (typeof (wx) === 'undefined') return;
-        wx.setStorageSync(WXManager.USER_OWNED_AVATAR_IDS_STORAGE_KEY, this.normalizeOwnedIds(ids));
+        // [LocalMode] Using sys.localStorage instead of wx storage
+        sys.localStorage.setItem(WXManager.USER_OWNED_AVATAR_IDS_STORAGE_KEY, String(this.normalizeOwnedIds(ids)));
     }
 
     public getOwnedAvatarIds(): Promise<number[] | null> {
@@ -1347,8 +1297,8 @@ export class WXManager extends Component {
     }
 
     public setOwnedAvatarFrameIds(ids: number[]): void {
-        if (typeof (wx) === 'undefined') return;
-        wx.setStorageSync(WXManager.USER_OWNED_AVATAR_FRAME_IDS_STORAGE_KEY, this.normalizeOwnedIds(ids));
+        // [LocalMode] Using sys.localStorage instead of wx storage
+        sys.localStorage.setItem(WXManager.USER_OWNED_AVATAR_FRAME_IDS_STORAGE_KEY, String(this.normalizeOwnedIds(ids)));
     }
 
     public getOwnedAvatarFrameIds(): Promise<number[] | null> {
@@ -1356,8 +1306,8 @@ export class WXManager extends Component {
     }
 
     public setOwnedTweezerIds(ids: number[]): void {
-        if (typeof (wx) === 'undefined') return;
-        wx.setStorageSync(WXManager.USER_OWNED_TWEEZER_IDS_STORAGE_KEY, this.normalizeOwnedIds(ids));
+        // [LocalMode] Using sys.localStorage instead of wx storage
+        sys.localStorage.setItem(WXManager.USER_OWNED_TWEEZER_IDS_STORAGE_KEY, String(this.normalizeOwnedIds(ids)));
     }
 
     public getOwnedTweezerIds(): Promise<number[] | null> {
@@ -1365,8 +1315,8 @@ export class WXManager extends Component {
     }
 
     public setOwnedIronIds(ids: number[]): void {
-        if (typeof (wx) === 'undefined') return;
-        wx.setStorageSync(WXManager.USER_OWNED_IRON_IDS_STORAGE_KEY, this.normalizeOwnedIds(ids));
+        // [LocalMode] Using sys.localStorage instead of wx storage
+        sys.localStorage.setItem(WXManager.USER_OWNED_IRON_IDS_STORAGE_KEY, String(this.normalizeOwnedIds(ids)));
     }
 
     public getOwnedIronIds(): Promise<number[] | null> {
@@ -1374,8 +1324,8 @@ export class WXManager extends Component {
     }
 
     public setOwnedAchievementIconIds(ids: number[]): void {
-        if (typeof (wx) === 'undefined') return;
-        wx.setStorageSync(WXManager.USER_OWNED_ACHIEVEMENT_ICON_IDS_STORAGE_KEY, this.normalizeOwnedIds(ids));
+        // [LocalMode] Using sys.localStorage instead of wx storage
+        sys.localStorage.setItem(WXManager.USER_OWNED_ACHIEVEMENT_ICON_IDS_STORAGE_KEY, String(this.normalizeOwnedIds(ids)));
     }
 
     public getOwnedAchievementIconIds(): Promise<number[] | null> {
@@ -1383,67 +1333,68 @@ export class WXManager extends Component {
     }
 
     public getPaletteSkillCount(): Promise<number | null> {
-        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        // [LocalMode] Using sys.localStorage instead of wx storage
         return new Promise((resolve) => {
-            wx.getStorage({
-                key: 'palette_skill_count',
-                success(res) {
-                    resolve(res.data);
-                },
-                fail() {
-                    resolve(null);
-                }
-            });
+            new Promise((resolve) => {
+            const val = sys.localStorage.getItem('palette_skill_count');
+            if (val !== null && val !== undefined && val !== '') {
+                try { resolve(JSON.parse(val)); } catch { resolve(val); }
+            } else {
+                resolve(null);
+            }
+        });
         });
     }
 
     private getOwnedIdsFromStorage(key: string): Promise<number[] | null> {
-        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        // [LocalMode] Using sys.localStorage instead of wx storage
         return new Promise((resolve) => {
-            wx.getStorage({
-                key,
-                success: (res) => {
-                    const normalizedIds = this.normalizeOwnedIds(res.data);
+            const val = sys.localStorage.getItem(key);
+            if (val !== null && val !== undefined && val !== '') {
+                try {
+                    const normalizedIds = this.normalizeOwnedIds(JSON.parse(val));
                     resolve(normalizedIds.length > 0 ? normalizedIds : null);
-                },
-                fail: () => {
+                } catch (e) {
                     resolve(null);
                 }
-            });
+            } else {
+                resolve(null);
+            }
         });
     }
 
     private getClaimedLevelsFromStorage(key: string): Promise<number[] | null> {
-        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        // [LocalMode] Using sys.localStorage instead of wx storage
         return new Promise((resolve) => {
-            wx.getStorage({
-                key,
-                success: (res) => {
-                    const normalizedLevels = this.normalizeClaimedLevels(res.data);
+            const val = sys.localStorage.getItem(key);
+            if (val !== null && val !== undefined && val !== '') {
+                try {
+                    const normalizedLevels = this.normalizeClaimedLevels(JSON.parse(val));
                     resolve(normalizedLevels.length > 0 ? normalizedLevels : null);
-                },
-                fail: () => {
+                } catch (e) {
                     resolve(null);
                 }
-            });
+            } else {
+                resolve(null);
+            }
         });
     }
 
     private setClaimedLevel(key: string, level: number, claimed: boolean): void {
-        if (typeof (wx) === 'undefined') return;
+        // [LocalMode] Using sys.localStorage instead of wx storage
         const safeLevel = Math.max(0, Math.floor(Number(level) || 0));
         if (safeLevel <= 0) {
             return;
         }
 
-        const levels = new Set(this.normalizeClaimedLevels(wx.getStorageSync(key)));
+        const levels = new Set(this.normalizeClaimedLevels(sys.localStorage.getItem(key)));
         if (claimed) {
             levels.add(safeLevel);
         } else {
             levels.delete(safeLevel);
         }
 
-        wx.setStorageSync(key, this.normalizeClaimedLevels(Array.from(levels)));
+        sys.localStorage.setItem(key, String(this.normalizeClaimedLevels(Array.from(levels))));
     }
 
     private normalizeOwnedIds(ids: unknown): number[] {
@@ -1503,42 +1454,40 @@ export class WXManager extends Component {
     }
 
     public setShopData(shopData: ShopRuntimeData): void {
-        if (typeof (wx) === 'undefined') return;
-        wx.setStorageSync('shop_data', shopData);
+        // [LocalMode] Using sys.localStorage instead of wx storage
+        sys.localStorage.setItem('shop_data', String(shopData));
     }
 
     public getShopData(): Promise<ShopRuntimeData | null> {
-        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        // [LocalMode] Using sys.localStorage instead of wx storage
         return new Promise((resolve) => {
-            wx.getStorage({
-                key: 'shop_data',
-                success(res) {
-                    resolve((res.data as ShopRuntimeData) ?? null);
-                },
-                fail() {
-                    resolve(null);
-                }
-            });
+            new Promise((resolve) => {
+            const val = sys.localStorage.getItem('shop_data');
+            if (val !== null && val !== undefined && val !== '') {
+                try { resolve(JSON.parse(val)); } catch { resolve(val); }
+            } else {
+                resolve(null);
+            }
+        });
         });
     }
 
     public setShopRefreshTime(refreshTime: number): void {
-        if (typeof (wx) === 'undefined') return;
-        wx.setStorageSync('shop_refresh_time', refreshTime);
+        // [LocalMode] Using sys.localStorage instead of wx storage
+        sys.localStorage.setItem('shop_refresh_time', String(refreshTime));
     }
 
     public getShopRefreshTime(): Promise<number | null> {
-        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        // [LocalMode] Using sys.localStorage instead of wx storage
         return new Promise((resolve) => {
-            wx.getStorage({
-                key: 'shop_refresh_time',
-                success(res) {
-                    resolve(typeof res.data === 'number' ? res.data : Number(res.data) || null);
-                },
-                fail() {
-                    resolve(null);
-                }
-            });
+            new Promise((resolve) => {
+            const val = sys.localStorage.getItem('shop_refresh_time');
+            if (val !== null && val !== undefined && val !== '') {
+                try { resolve(JSON.parse(val)); } catch { resolve(val); }
+            } else {
+                resolve(null);
+            }
+        });
         });
     }
 
@@ -1546,31 +1495,30 @@ export class WXManager extends Component {
      * 设置体力下次恢复时间（时间戳，毫秒）
      */
     public setPowerNextRegenTime(time: number): void {
-        if (typeof (wx) === 'undefined') return;
-        wx.setStorageSync('power_next_regen', time);
+        // [LocalMode] Using sys.localStorage instead of wx storage
+        sys.localStorage.setItem('power_next_regen', String(time));
     }
 
     /**
      * 获取体力下次恢复时间（时间戳，毫秒）
      */
     public getPowerNextRegenTime(): Promise<number | null> {
-        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        // [LocalMode] Using sys.localStorage instead of wx storage
         return new Promise((resolve) => {
-            wx.getStorage({
-                key: 'power_next_regen',
-                success(res) {
-                    resolve(res.data);
-                },
-                fail() {
-                    resolve(null);
-                }
-            });
+            new Promise((resolve) => {
+            const val = sys.localStorage.getItem('power_next_regen');
+            if (val !== null && val !== undefined && val !== '') {
+                try { resolve(JSON.parse(val)); } catch { resolve(val); }
+            } else {
+                resolve(null);
+            }
+        });
         });
     }
 
     public getPowerNextRegenTimeSync(): number {
-        if (typeof (wx) === 'undefined') return 0;
-        return Math.max(0, Number(wx.getStorageSync('power_next_regen')) || 0);
+        if (!isWechat()) return 0;
+        return Math.max(0, Number(sys.localStorage.getItem('power_next_regen')) || 0);
     }
 
     // ========== 原生模板广告 ==========
@@ -1597,7 +1545,7 @@ export class WXManager extends Component {
     }
 
     private getWindowSize(): { width: number; height: number } | null {
-        if (typeof (wx) === 'undefined') return null;
+        if (!isWechat()) return null;
         const windowInfo = wx.getWindowInfo?.();
         const width = windowInfo?.windowWidth;
         const height = windowInfo?.windowHeight;
@@ -1612,8 +1560,9 @@ export class WXManager extends Component {
      * @param width 广告宽度
      */
     public createNativeAd(left: number, top: number, width: number): void {
-        if (typeof (wx) === 'undefined') return;
+        // [LocalMode] Using sys.localStorage instead of wx storage
 
+        if (!isWechat()) return;
         this.nativeAdStyle.left = Math.max(0, Math.floor(left));
         this.nativeAdStyle.top = Math.max(0, Math.floor(top));
         this.nativeAdStyle.width = Math.max(1, Math.floor(width));
@@ -1721,8 +1670,9 @@ export class WXManager extends Component {
      * @param top 距离屏幕顶部像素（左上角为原点）
      */
     public createNativeGridAd(right: number, top: number): void {
-        if (typeof (wx) === 'undefined') return;
+        // [LocalMode] Using sys.localStorage instead of wx storage
 
+        if (!isWechat()) return;
         const windowSize = this.getWindowSize();
         if (!windowSize) return;
 
@@ -1820,17 +1770,13 @@ export class WXManager extends Component {
      */
     public login(): Promise<{ code: string | null; errMsg: string }> {
         return new Promise((resolve) => {
-            if (typeof (wx) === 'undefined') {
+            if (!isWechat()) {
                 console.warn('不在微信小游戏环境中');
                 resolve({ code: null, errMsg: 'not in wechat environment' });
                 return;
             }
 
-            wx.login({
-                success: (res) => {
-                    if (res.code) {
-                        console.log('wx.login 成功，code:', res.code);
-                        resolve({ code: res.code, errMsg: 'ok' });
+            Promise.resolve({ code: 'local_mode' });
                     } else {
                         console.warn('wx.login 成功但未返回 code:', res);
                         resolve({ code: null, errMsg: 'no code returned' });
@@ -1852,7 +1798,7 @@ export class WXManager extends Component {
      */
     public checkSession(): Promise<boolean> {
         return new Promise((resolve) => {
-            if (typeof (wx) === 'undefined') {
+            if (!isWechat()) {
                 resolve(false);
                 return;
             }
@@ -1878,13 +1824,8 @@ export class WXManager extends Component {
      * @returns Promise<string | null> openid
      */
     public async getOpenId(): Promise<string | null> {
-        // ✅ 添加环境检测
-        if (typeof wx === 'undefined') {
-            console.warn('不在微信小游戏环境中');
-            return null;
-        }
         // 先检查本地是否已有缓存
-        const cachedOpenid = wx.getStorageSync('openid');
+        const cachedOpenid = sys.localStorage.getItem('openid');
         if (cachedOpenid) {
             console.log('使用缓存的 openid:', cachedOpenid);
             return cachedOpenid;
@@ -1902,7 +1843,7 @@ export class WXManager extends Component {
 
         if (res.result?.success && res.result.openid) {
             // 保存到本地缓存
-            wx.setStorageSync('openid', res.result.openid);
+            sys.localStorage.setItem('openid', String(res.result.openid));
             console.log('获取 openid 成功:', res.result.openid);
             return res.result.openid;
         }
@@ -1948,12 +1889,12 @@ export class WXManager extends Component {
 
     private restoreCachedUserProfile(): void {
         const userInfo = this.getUserInfoModel();
-        if (!userInfo || typeof (wx) === 'undefined') {
+        if (!userInfo || !isWechat()) {
             return;
         }
 
-        const nickname = String(wx.getStorageSync(WXManager.USER_NICKNAME_STORAGE_KEY) || '').trim();
-        const avatarUrl = String(wx.getStorageSync(WXManager.USER_AVATAR_URL_STORAGE_KEY) || '').trim();
+        const nickname = String(sys.localStorage.getItem(WXManager.USER_NICKNAME_STORAGE_KEY) || '').trim();
+        const avatarUrl = String(sys.localStorage.getItem(WXManager.USER_AVATAR_URL_STORAGE_KEY) || '').trim();
 
         if (UserInfo.isRealUserProfile(nickname, avatarUrl)) {
             userInfo.setProfile(nickname, avatarUrl);
@@ -1965,7 +1906,7 @@ export class WXManager extends Component {
 
     private saveCachedUserProfile(): void {
         const userInfo = this.getUserInfoModel();
-        if (!userInfo || typeof (wx) === 'undefined') {
+        if (!userInfo || !isWechat()) {
             return;
         }
 
@@ -1974,17 +1915,17 @@ export class WXManager extends Component {
             return;
         }
 
-        wx.setStorageSync(WXManager.USER_NICKNAME_STORAGE_KEY, userInfo.nickname.trim());
-        wx.setStorageSync(WXManager.USER_AVATAR_URL_STORAGE_KEY, userInfo.avatarUrl.trim());
+        sys.localStorage.setItem(WXManager.USER_NICKNAME_STORAGE_KEY, String(userInfo.nickname.trim()));
+        sys.localStorage.setItem(WXManager.USER_AVATAR_URL_STORAGE_KEY, String(userInfo.avatarUrl.trim()));
     }
 
     private clearCachedUserProfile(): void {
-        if (typeof (wx) === 'undefined') {
+        if (!isWechat()) {
             return;
         }
 
-        wx.removeStorageSync(WXManager.USER_NICKNAME_STORAGE_KEY);
-        wx.removeStorageSync(WXManager.USER_AVATAR_URL_STORAGE_KEY);
+        sys.localStorage.removeItem(WXManager.USER_NICKNAME_STORAGE_KEY);
+        sys.localStorage.removeItem(WXManager.USER_AVATAR_URL_STORAGE_KEY);
     }
 
     /**
@@ -1992,17 +1933,12 @@ export class WXManager extends Component {
      */
     public hasUserInfoPermission(): Promise<UserInfoAuthorizeState> {
         return new Promise((resolve) => {
-            if (typeof (wx) === 'undefined') {
+            if (!isWechat()) {
                 resolve('unset');
                 return;
             }
 
-            wx.getSetting({
-                success: (res) => {
-                    console.log('[WXManager] hasUserInfoPermission getSetting result:', {
-                        authSetting: res?.authSetting,
-                        scopeUserInfo: res?.authSetting?.['scope.userInfo']
-                    });
+            Promise.resolve({ authSetting: { 'scope.userInfo': true } });
                     const scopeUserInfo = res?.authSetting?.['scope.userInfo'];
                     if (scopeUserInfo === true) {
                         resolve('accept');
@@ -2030,6 +1966,7 @@ export class WXManager extends Component {
      * @returns Promise<{ nickname: string; avatarUrl: string }>
      */
     public async getUserInfo(): Promise<{ nickname: string; avatarUrl: string }> {
+        if (!isWechat()) return Promise.resolve(null);
         const localUserInfo = this.ensureUserProfileLoadedFromCache();
         if (this.hasRealUserProfile()) {
             return localUserInfo?.getDisplayProfile() ?? { nickname: '', avatarUrl: '' };
@@ -2047,7 +1984,7 @@ export class WXManager extends Component {
             return localUserInfo?.getDisplayProfile() ?? { nickname: fallbackNickname, avatarUrl: '' };
         };
 
-        if (typeof (wx) === 'undefined') {
+        if (!isWechat()) {
             return await resolveFallbackProfile();
         }
 
