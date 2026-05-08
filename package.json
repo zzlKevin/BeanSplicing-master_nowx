@@ -1,0 +1,22 @@
+{
+  "name": "beansplicing",
+  "uuid": "a87d0d20-1580-4f94-86d0-4a5ea231ee5b",
+  "creator": {
+    "version": "3.8.1"
+  },
+  "dependencies": {
+    "@cloudbase/adapter-cocos_native": "^1.0.0",
+    "@cloudbase/js-sdk": "^2.27.3",
+    "compressing": "^2.1.1",
+    "image-size": "^2.0.2"
+  },
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

@@ -1,0 +1,9 @@
+{
+  "triggers": [
+    {
+      "name": "sendSubscribeMessagesEveryMinute",
+      "type": "timer",
+      "config": "0 */1 * * * * *"
+    }
+  ]
+}

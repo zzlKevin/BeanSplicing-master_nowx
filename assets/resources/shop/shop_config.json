@@ -1,0 +1,148 @@
+{
+  "categories": [
+    {
+      "id": "supply",
+      "name": "补给",
+      "items": [
+        {
+          "id": "skill_fix",
+          "name": "修复技能",
+          "effectType": "skill",
+          "effectKey": "fix_skill",
+          "effectValue": 1,
+          "priceRange": {
+            "min": 200,
+            "max": 400
+          },
+          "imagePath": "items/shop/skill_fix"
+        },
+        {
+          "id": "skill_time_freeze",
+          "name": "冻结技能",
+          "effectType": "skill",
+          "effectKey": "time_skill",
+          "effectValue": 1,
+          "priceRange": {
+            "min": 100,
+            "max": 300
+          },
+          "imagePath": "items/shop/skill_time_freeze"
+        },
+        {
+          "id": "skill_palette",
+          "name": "图案技能",
+          "effectType": "skill",
+          "effectKey": "palette_skill",
+          "effectValue": 1,
+          "priceRange": {
+            "min": 250,
+            "max": 450
+          },
+          "imagePath": "items/shop/skill_palette"
+        },
+        {
+          "id": "power_value_small",
+          "name": "能量+3",
+          "effectType": "power",
+          "effectKey": "power",
+          "effectValue": 3,
+          "priceRange": {
+            "min": 150,
+            "max": 250
+          },
+          "imagePath": "items/shop/power"
+        },
+        {
+          "id": "power_value_medium",
+          "name": "能量+6",
+          "effectType": "power",
+          "effectKey": "power",
+          "effectValue": 6,
+          "priceRange": {
+            "min": 300,
+            "max": 500
+          },
+          "imagePath": "items/shop/power"
+        },
+        {
+          "id": "power_value_large",
+          "name": "能量+10",
+          "effectType": "power",
+          "effectKey": "power",
+          "effectValue": 10,
+          "priceRange": {
+            "min": 600,
+            "max": 800
+          },
+          "imagePath": "items/shop/power"
+        }
+      ]
+    },
+    {
+      "id": "prop",
+      "name": "道具",
+      "items": [
+        {
+          "id": "revive_card",
+          "name": "复活卡",
+          "priceRange": {
+            "min": 500,
+            "max": 888
+          },
+          "imagePath": "items/shop/revive_card"
+        },
+        {
+          "id": "time_freeze_card",
+          "name": "时间冻结卡",
+          "priceRange": {
+            "min": 300,
+            "max": 450
+          },
+          "imagePath": "items/shop/time_freeze_card"
+        },
+        {
+          "id": "hint_card",
+          "name": "提示卡",
+          "priceRange": {
+            "min": 180,
+            "max": 280
+          },
+          "imagePath": "items/shop/hint_card"
+        }
+      ]
+    },
+    {
+      "id": "decoration",
+      "name": "装饰",
+      "items": [
+        {
+          "id": "iron_skin_sakura",
+          "name": "樱花熨斗皮肤",
+          "priceRange": {
+            "min": 600,
+            "max": 900
+          },
+          "imagePath": "items/shop/iron_skin_sakura"
+        },
+        {
+          "id": "coin_trail_star",
+          "name": "星光金币特效",
+          "priceRange": {
+            "min": 700,
+            "max": 980
+          },
+          "imagePath": "items/shop/coin_trail_star"
+        },
+        {
+          "id": "frame_cloud",
+          "name": "云朵头像框",
+          "priceRange": {
+            "min": 260,
+            "max": 420
+          },
+          "imagePath": "items/shop/frame_cloud"
+        }
+      ]
+    }
+  ]
+}

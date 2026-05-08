@@ -1,0 +1,2081 @@
+﻿import { _decorator, Component, Node } from 'cc';
+import { GameManager, DifficultyMode } from './GameManager';
+import { callFunction } from './CloudbaseService';
+import { ShopRuntimeData } from './ShopConfig';
+import { UserInfo } from './UserInfo';
+import type { RoadPassRewardClaimState } from './RoadController';
+import { AudioManager } from './AudioManager';
+const { ccclass, property} = _decorator;
+
+// 微信小游戏全局对象类型声明
+declare const wx: any;
+
+type SubscribeMessageStatus = 'accept' | 'reject' | 'ban' | 'filter' | '';
+type SubscribeTemplateAuthorizeState = 'unset' | 'accept' | 'reject';
+export type UserInfoAuthorizeState = 'accept' | 'reject' | 'unset';
+
+interface RequestSubscribeMessageResult {
+    success: boolean;
+    result: Record<string, SubscribeMessageStatus>;
+    error?: string;
+}
+
+interface SubscribeMessageSettingResult {
+    success: boolean;
+    mainSwitch: boolean | null;
+    itemSettings: Record<string, SubscribeMessageStatus>;
+    error?: string;
+}
+
+interface CreateSubscribeTaskOptions {
+    templateId: string;
+    payload: Record<string, any>;
+    sendAt: number;
+    page?: string;
+    scene?: string;
+    miniprogramState?: 'developer' | 'trial' | 'formal';
+    dedupeKey?: string;
+}
+
+interface SubscribeTaskClientResult {
+    success: boolean;
+    subscribeStatus?: SubscribeMessageStatus;
+    subscribeResult?: Record<string, SubscribeMessageStatus>;
+    taskResult?: any;
+    duplicated?: boolean;
+    taskId?: string;
+    error?: string;
+}
+
+/**
+ * 云存储管理器
+ * 接入微信小游戏 wx.setUserCloudStorage 接口
+ */
+@ccclass('WXManager')
+export class WXManager extends Component {
+    private static readonly USER_NICKNAME_STORAGE_KEY = 'user_nickname';
+    private static readonly USER_AVATAR_URL_STORAGE_KEY = 'user_avatar_url';
+    private static readonly USER_AUTHORIZED_AVATAR_URL_STORAGE_KEY = 'user_authorized_avatar_url';
+    private static readonly USER_CURRENT_AVATAR_SOURCE_STORAGE_KEY = 'user_current_avatar_source';
+    private static readonly GAME_EVALUATION_RECOMMENDED_STORAGE_KEY = 'game_evaluation_recommended';
+    private static readonly USER_SEX_STORAGE_KEY = 'user_sex';
+    private static readonly USER_AVATAR_FRAME_ID_STORAGE_KEY = 'user_avatar_frame_id';
+    private static readonly USER_TWEEZER_ID_STORAGE_KEY = 'user_tweezer_id';
+    private static readonly USER_IRON_ID_STORAGE_KEY = 'user_iron_id';
+    private static readonly USER_OWNED_AVATAR_IDS_STORAGE_KEY = 'user_owned_avatar_ids';
+    private static readonly USER_OWNED_AVATAR_FRAME_IDS_STORAGE_KEY = 'user_owned_avatar_frame_ids';
+    private static readonly USER_OWNED_TWEEZER_IDS_STORAGE_KEY = 'user_owned_tweezer_ids';
+    private static readonly USER_OWNED_IRON_IDS_STORAGE_KEY = 'user_owned_iron_ids';
+    private static readonly USER_OWNED_ACHIEVEMENT_ICON_IDS_STORAGE_KEY = 'user_owned_achievement_icon_ids';
+    private static readonly BOOK_UNLOCKED_IDS_STORAGE_PREFIX = 'book_unlocked_ids';
+    private static readonly BOOK_PROGRESS_REWARD_STORAGE_PREFIX = 'book_progress_reward';
+    private static readonly ROAD_PASS_FREE_CLAIMED_LEVELS_STORAGE_KEY = 'road_pass_free_claimed_levels';
+    private static readonly ROAD_PASS_PREMIUM_CLAIMED_LEVELS_STORAGE_KEY = 'road_pass_premium_claimed_levels';
+    private static readonly ROAD_PASS_PREMIUM_UNLOCKED_STORAGE_KEY = 'road_pass_premium_unlocked';
+    private static readonly ROAD_PASS_VIDEO_WATCH_COUNT_STORAGE_KEY = 'road_pass_video_watch_count';
+
+    @property({ type: Node })
+    testBtn: Node = null;
+
+    subscribeTemplateId: string = 'dhpYKr-YayyWv_ibni2T5EOkwEjBQsk1QDPS1huZCvQ';
+    subscribePage: string = '';
+    subscribeTipField: string = 'thing2';
+    subscribeCurrentPowerField: string = 'thing7';
+    private subscribeTemplateAuthorizeStateCache: SubscribeTemplateAuthorizeState = 'unset';
+
+    // 激励视频广告实例
+    private rewardedVideoAd: any = null;
+    private interstitialAd: any = null;
+    private readonly INTERSTITIAL_MIN_INTERVAL: number = 5 * 60 * 1000;
+    private readonly INTERSTITIAL_LAST_SHOW_STORAGE_KEY: string = 'interstitial_last_show_at';
+    private _gameEvaluationRecommended: boolean = false;
+    // 激励视频广告位 id（在微信公众平台广告位配置获取）
+    private readonly VIDEO_AD_UNIT_ID: string = 'adunit-f7349bec4122701f';
+    private readonly INTERSTITIAL_AD_UNIT_ID: string = 'adunit-613709c057d35ead';
+    // 是否为调试模式（正式版但广告位为 test123 时启用）
+    // private isDebugMode: boolean = false;
+    private isDebugMode: boolean = true;
+
+
+    // 分享图片 ID（在微信公众平台「增长入口」→「小程序分享图」上传获取）
+    private _imageUrlId: string = 'qGwwwryFRtmUgxcDjf2p3w==';
+    // 分享图片 URL（必须 HTTPS）
+    private _imageUrl: string = 'https://mmocgame.qpic.cn/wechatgame/f4uuDhnRAxMTJF1dLAUnqlLAKiaIMZfsk7uHGIUribuCc8ibicOmTxAVDvvG6LMQLTMb/0';
+
+    onLoad() {
+        this.restoreCachedUserProfile();
+        this._gameEvaluationRecommended = this.getGameEvaluationRecommendedFromStorage();
+        this.showShareMenu();
+        // imageUrlId、imageUrl：在微信公众平台「增长入口」→「小程序分享图」上传后获得的图片 ID 和图片 URL
+        this.onShareAppMessage('快来和我一起拼豆！');
+        //注释广告
+        // if (!this.isDebugMode) {
+        //     this.createRewardedVideoAd();
+        //     this.createInterstitialAd();
+        // }
+    }
+
+    // ========== 激励视频广告 ==========
+    private getUserInfoModel(): UserInfo | null {
+        return GameManager.getInstance()?.userInfo ?? null;
+    }
+
+    private ensureUserProfileLoadedFromCache(): UserInfo | null {
+        const userInfo = this.getUserInfoModel();
+        if (!userInfo || typeof (wx) === 'undefined') {
+            return userInfo;
+        }
+
+        if (userInfo.nickname || userInfo.avatarUrl) {
+            return userInfo;
+        }
+
+        const nickname = String(wx.getStorageSync(WXManager.USER_NICKNAME_STORAGE_KEY) || '').trim();
+        const avatarUrl = String(wx.getStorageSync(WXManager.USER_AVATAR_URL_STORAGE_KEY) || '').trim();
+        if (UserInfo.isRealUserProfile(nickname, avatarUrl)) {
+            userInfo.setProfile(nickname, avatarUrl);
+        }
+
+        return userInfo;
+    }
+
+    private skillRewardedVideoClosed: ((success: boolean) => void) | null = null;
+
+    /**
+     * 创建激励视频广告
+     */
+    private createRewardedVideoAd(): void {
+        if (typeof (wx) === 'undefined') return;
+
+        try {
+            this.rewardedVideoAd = wx.createRewardedVideoAd({
+                adUnitId: this.VIDEO_AD_UNIT_ID
+            });
+
+            this.rewardedVideoAd.onLoad(() => {
+                console.log('激励视频广告加载完成');
+            });
+
+            this.rewardedVideoAd.onError((err: any) => {
+                console.warn('激励视频广告错误:', err);
+            });
+
+            this.rewardedVideoAd.onClose((res: any) => {
+                if (res && res.isEnded) {
+                    console.log('激励视频广告播放完成，发放奖励');
+                    this.skillRewardedVideoClosed?.(true);
+                } else {
+                    console.log('激励视频广告未看完，不发放奖励');
+                    this.skillRewardedVideoClosed?.(false);
+                }
+                this.skillRewardedVideoClosed = null;
+                this.scheduleOnce(() => {
+                    AudioManager.instance.resumeBgm();
+                }, 0.5);
+            });
+        } catch (e) {
+            console.warn('创建激励视频广告失败:', e);
+        }
+    }
+
+    /**
+     * 显示激励视频广告
+     * @param callback 播放结束后的回调，参数表示是否完整看完
+     */
+    public showRewardedVideoAd(callback: (success: boolean) => void): void {
+        // ✅ 添加测试模式：非微信环境 或 调试模式 下，直接模拟成功
+        if (typeof wx === 'undefined' || this.isDebugMode) {
+            console.log('[WXManager] 模拟激励视频广告：直接发放奖励');
+            callback?.(true);
+            return;
+        }
+        
+        if (typeof (wx) === 'undefined') {
+            callback?.(true);
+            return;
+        }
+
+        if (this.isDebugMode) {
+            callback?.(true);
+            return;
+        }
+
+        if (!this.rewardedVideoAd) {
+            console.warn('激励视频广告未创建');
+            callback?.(false);
+            return;
+        }
+
+        AudioManager.instance.pauseBgm();
+        this.skillRewardedVideoClosed = callback;
+
+        this.rewardedVideoAd.show().then(() => {
+            console.log('激励视频广告显示成功');
+        }).catch((err: any) => {
+            this.rewardedVideoAd.load().then(() => {
+                return this.rewardedVideoAd.show();
+            }).catch(() => {
+                this.skillRewardedVideoClosed?.(false);
+                this.skillRewardedVideoClosed = null;
+            });
+        });
+    }
+
+    // ========== 游戏圈 ==========
+    private gameClubOpenLink: string = '-SSEykJvFV3pORt5kTNpS_6DPrRDfozxCy2jEFL07zx4R-MPpU1tST5hbtFc_HIAj2wCkd5SAVv3YF0b64mCaSig10g5_N-0VSt13L2-6XHYTPxYuYHrwKWDWcpLZH54HOsgGoyYRB8BRKGj2OmqcX0cBZgDOBWwBNIHZuH3cxSpsLFkmn6DZ4vYzCND_U8NGLS3k-FzDYC6WmFvxUXNRonP7Vw17RgTuj0vJWDeXQJOZUkmujqMLLjnh1ZICLPLhOX0zLLntMnnS8U2jrhN74hPjDwO1ibU1ilk6z6Q37J1P2K_USQMxVSmEQ071HbS5w_PKiVKTmNb2zkBGKRMoA';
+    private gameClubOpenLink_Recommend: string = 'FM09ILkjlQxM0OIigsWiuGIdFe7FV0HoNKXS8V9PYREEYfFyUYW8l60mFmyI6DFMUFslSKzrqX1aQkxGqUPSPfOr65rBAZfQcI936dkW2d43YKa3xHDvgKRQtEpwy7cyfybIZpj7ZYRQ2JKuyfv_VSUXicFhZ4KZki3DfCNednhmOUd_HVgd2DKnPoc0r4gUDpc_qbnW25Ki5R4wyqbWRbX_TACzPcYGYD8opptw4SVlN-M2yWX7BxO-I4CFGsm0Qd2-lxh47Njg7FB1vzaFDOT4FRjTyIpLF7cSHbcYIfE2givsB-alDWE2gIf1iBXdWc0ZTrpSOm2TeA1G_hHE3-6B4VAmNc8VOrhFD3zcp3D5lMmSqO6NZreR30CRSJg_kKisDgvsvt_v1ssABrr46A';
+    /**
+     * 设置游戏圈 openLink（需在微信公众平台获取）
+     * @param openLink 活动或功能的 openLink
+     */
+    public setGameClubOpenLink(openLink: string): void {
+        this.gameClubOpenLink = openLink;
+    }
+
+    /**
+     * 打开游戏圈
+     */
+    public openGameClub(): void {
+        if (typeof (wx) === 'undefined') return;
+        if (!this.gameClubOpenLink) {
+            console.warn('游戏圈 openLink 未设置，请先调用 setGameClubOpenLink 设置');
+            return;
+        }
+
+        const pageManager = wx.createPageManager();
+        pageManager.load({
+            openlink: this.gameClubOpenLink
+        }).then((res: any) => {
+            console.log('游戏圈加载成功:', res);
+            pageManager.show();
+        }).catch((err: any) => {
+            console.warn('游戏圈加载失败:', err);
+        });
+    }
+
+    // 推荐位 openLink
+    private readonly RECOMMEND_OPENLINK: string = 'TWFRCqV5WeM2AkMXhKwJ03MhfPOieJfAsvXKUbWvQFQtLyyA5etMPabBehga950uzfZcH3Vi3QeEh41xRGEVFw';
+
+    /**
+     * 创建插屏广告
+     */
+    private createInterstitialAd(): void {
+        if (typeof (wx) === 'undefined') return;
+        if (typeof wx.createInterstitialAd !== 'function') return;
+
+        try {
+            this.interstitialAd = wx.createInterstitialAd({
+                adUnitId: this.INTERSTITIAL_AD_UNIT_ID
+            });
+
+            this.interstitialAd.onLoad(() => {
+                console.log('插屏广告加载完成');
+            });
+
+            this.interstitialAd.onError((err: any) => {
+                console.warn('插屏广告错误:', err);
+            });
+
+            this.interstitialAd.onClose(() => {
+                console.log('插屏广告已关闭');
+            });
+        } catch (e) {
+            console.warn('创建插屏广告失败:', e);
+        }
+    }
+
+    /**
+     * 显示插屏广告
+     */
+    public async showInterstitialAd(): Promise<boolean> {
+        if (typeof (wx) === 'undefined') return false;
+        if (this.isDebugMode) return false;
+        if (!this.interstitialAd) {
+            console.warn('插屏广告未创建');
+            return false;
+        }
+
+        const now = Date.now();
+        const lastShowAt = Number(wx.getStorageSync(this.INTERSTITIAL_LAST_SHOW_STORAGE_KEY)) || 0;
+        if (lastShowAt > 0 && now - lastShowAt < this.INTERSTITIAL_MIN_INTERVAL) {
+            console.log('[Interstitial] skip show due to cooldown', {
+                now,
+                lastShowAt,
+                remainingMs: this.INTERSTITIAL_MIN_INTERVAL - (now - lastShowAt)
+            });
+            return false;
+        }
+
+        try {
+            await this.interstitialAd.show();
+            wx.setStorageSync(this.INTERSTITIAL_LAST_SHOW_STORAGE_KEY, now);
+            return true;
+        } catch {
+            try {
+                await this.interstitialAd.load();
+                await this.interstitialAd.show();
+                wx.setStorageSync(this.INTERSTITIAL_LAST_SHOW_STORAGE_KEY, now);
+                return true;
+            } catch (err: any) {
+                console.warn('插屏广告显示失败:', err);
+                return false;
+            }
+        }
+    }
+
+    public hasRecommendedGameEvaluation(): boolean {
+        return this._gameEvaluationRecommended;
+    }
+
+    private getGameEvaluationRecommendedFromStorage(): boolean {
+        if (typeof (wx) === 'undefined') {
+            return false;
+        }
+
+        return !!wx.getStorageSync(WXManager.GAME_EVALUATION_RECOMMENDED_STORAGE_KEY);
+    }
+
+    public setGameEvaluationRecommended(value: boolean): void {
+        this._gameEvaluationRecommended = !!value;
+        if (typeof (wx) === 'undefined') {
+            return;
+        }
+
+        if (this._gameEvaluationRecommended) {
+            wx.setStorageSync(WXManager.GAME_EVALUATION_RECOMMENDED_STORAGE_KEY, 1);
+            return;
+        }
+
+        wx.removeStorageSync(WXManager.GAME_EVALUATION_RECOMMENDED_STORAGE_KEY);
+    }
+
+    public tryShowGameEvaluation(): void {
+        if (this._gameEvaluationRecommended) {
+            return;
+        }
+
+        if (typeof (wx) === 'undefined') {
+            return;
+        }
+
+        try {
+            const pageManager = wx.createPageManager();
+
+            pageManager.on('destroy', (result) => {
+                if (result?.isRecommended) {
+                    this.setGameEvaluationRecommended(true);
+                }
+            });
+
+            pageManager.load({
+                openlink: this.RECOMMEND_OPENLINK
+            }).then(() => {
+                try {
+                    pageManager.show();
+                } catch (error) {
+                    console.warn('调用推荐位页面失败:', error);
+                }
+            }).catch((error: any) => {
+                console.warn('推荐位页面加载失败:', error);
+            });
+        } catch (error) {
+            console.warn('创建推荐位页面失败:', error);
+        }
+    }
+
+    /**
+     * 显示分享菜单
+     * @param withShareTicket 是否使用 shareTicket，默认为 false
+     * @param menus 分享功能菜单，默认为 ['shareAppMessage', 'shareTimeline']
+     */
+    public showShareMenu(
+        withShareTicket: boolean = false,
+        menus: string[] = ['shareAppMessage', 'shareTimeline']
+    ): void {
+        if (typeof (wx) === 'undefined') return;
+
+        try {
+            wx.showShareMenu?.({
+                withShareTicket,
+                menus,
+                success: () => console.log('分享菜单已显示'),
+                fail: (err: any) => console.warn('显示分享菜单失败:', err)
+            });
+        } catch (e) {
+            console.warn('显示分享菜单失败:', e);
+        }
+    }
+
+    /**
+     * 隐藏分享菜单
+     */
+    public hideShareMenu(): void {
+        if (typeof (wx) === 'undefined') return;
+
+        try {
+            wx.hideShareMenu?.({
+                success: () => console.log('分享菜单已隐藏'),
+                fail: (err: any) => console.warn('隐藏分享菜单失败:', err)
+            });
+        } catch (e) {
+            console.warn('隐藏分享菜单失败:', e);
+        }
+    }
+
+    /**
+     * 自定义分享内容
+     * @param title 分享标题，默认使用小程序名称
+     */
+    public onShareAppMessage(title?: string): void {
+        if (typeof (wx) === 'undefined') return;
+
+        wx.onShareAppMessage(() => ({
+            title: title ?? '',
+            imageUrlId: this._imageUrlId,
+            imageUrl: this._imageUrl,
+        }));
+    }
+
+    /**
+     * 设置分享图片（需在 onLoad 之前或在编辑器面板中配置）
+     * @param imageUrlId 素材图片 ID
+     * @param imageUrl 分享图片 URL
+     */
+    public setShareImage(imageUrlId: string, imageUrl: string): void {
+        this._imageUrlId = imageUrlId;
+        this._imageUrl = imageUrl;
+    }
+
+    /**
+     * 主动分享（调用后显示分享面板，用户选择好友/群后完成分享）
+     * @param title 分享标题
+     * @param query 分享链接后的参数，格式 'key1=value1&key2=value2'
+     * @param withShareTicket 是否使用 shareTicket，默认 false
+     */
+    public shareAppMessage(
+        title: string,
+        withShareTicket: boolean = false
+    ): Promise<void> {
+        return new Promise((resolve, reject) => {
+            if (typeof (wx) === 'undefined') {
+                reject(new Error('不在微信小游戏环境中'));
+                return;
+            }
+
+            wx.shareAppMessage({
+                title: title,
+                imageUrl: this._imageUrl,
+                imageUrlId: this._imageUrlId,
+                withShareTicket,
+                success: () => {
+                    console.log('主动分享成功');
+                    resolve();
+                },
+                fail: (err: any) => {
+                    console.warn('主动分享失败:', err);
+                    reject(err);
+                }
+            });
+        });
+    }
+
+    /**
+     * 设置截屏/录屏时隐藏画面
+     */
+    public setCaptureRestricted(): void {
+        if (typeof (wx) === 'undefined') return;
+
+        try {
+            // wx.setVisualEffectOnCapture?.({
+            //     visualEffect: 'hidden',
+            //     success: () => console.log('截屏限制已开启'),
+            //     fail: (err: any) => console.warn('设置截屏限制失败:', err)
+            // });
+        } catch (e) {
+            console.warn('设置截屏限制失败:', e);
+        }
+    }
+
+    /**
+     * 恢复截屏/录屏正常显示
+     */
+    public setCaptureNone(): void {
+        if (typeof (wx) === 'undefined') return;
+
+        try {
+            wx.setVisualEffectOnCapture?.({
+                visualEffect: 'none',
+                success: () => console.log('截屏限制已恢复'),
+                fail: (err: any) => console.warn('恢复截屏限制失败:', err)
+            });
+        } catch (e) {
+            console.warn('恢复截屏限制失败:', e);
+        }
+    }
+
+    start() {
+        if (this.testBtn) {
+            this.testBtn.on(Node.EventType.TOUCH_END, this.onTestBtnClick, this);
+        }
+    }
+
+    private onTestBtnClick(): void {
+        if (GameManager.getInstance()?.isWindowBlocking()) return;
+        this.clearStorageLevel();
+    }
+
+    public async getStorageLevel(): Promise<number | null> {
+        if (typeof (wx) === 'undefined') {
+            console.warn('不在微信小游戏环境中');
+            return null;
+        }
+        
+        return new Promise((resolve) => {
+            wx.getStorage({
+                key: 'level',
+                success (res) {
+                    resolve(res.data);
+                },
+                fail () {
+                    console.log('getStorageLevel fail');
+                    resolve(null);
+                }
+            });
+        });
+    }
+
+    public setStorageLevel(level){
+        if (typeof (wx) === 'undefined') {
+            console.warn('不在微信小游戏环境中');
+            return null;
+        }
+
+        wx.setStorageSync('level', level);
+    }
+
+    /**
+     * 清除所有难度的关卡缓存
+     */
+    public clearStorageLevel(): void {
+        if (typeof (wx) === 'undefined') {
+            console.warn('不在微信小游戏环境中');
+            return;
+        }
+
+        wx.removeStorageSync('level_simple');
+        wx.removeStorageSync('level_medium');
+        wx.removeStorageSync('level_hard');
+        wx.removeStorageSync(this.getBookUnlockedIdsStorageKey(DifficultyMode.SIMPLE));
+        wx.removeStorageSync(this.getBookUnlockedIdsStorageKey(DifficultyMode.MEDIUM));
+        wx.removeStorageSync(this.getBookUnlockedIdsStorageKey(DifficultyMode.HARD));
+        wx.removeStorageSync(this.getBookProgressRewardStorageKey(DifficultyMode.SIMPLE));
+        wx.removeStorageSync(this.getBookProgressRewardStorageKey(DifficultyMode.MEDIUM));
+        wx.removeStorageSync(this.getBookProgressRewardStorageKey(DifficultyMode.HARD));
+        console.log('已清除所有难度关卡缓存');
+    }
+
+    /**
+     * 按难度保存关卡数
+     */
+    public setStorageLevelByDifficulty(difficulty: DifficultyMode, level: number): void {
+        if (typeof (wx) === 'undefined') return;
+        wx.setStorageSync(`level_${difficulty}`, level);
+    }
+
+    /**
+     * 按难度获取关卡数
+     */
+    public getStorageLevelByDifficulty(difficulty: DifficultyMode): Promise<number | null> {
+        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        return new Promise((resolve) => {
+            wx.getStorage({
+                key: `level_${difficulty}`,
+                success(res) {
+                    resolve(res.data);
+                },
+                fail() {
+                    resolve(null);
+                }
+            });
+        });
+    }
+
+    public setBookUnlockedIdsByDifficulty(difficulty: DifficultyMode, ids: number[]): void {
+        if (typeof (wx) === 'undefined') return;
+        wx.setStorageSync(this.getBookUnlockedIdsStorageKey(difficulty), this.normalizeOwnedIds(ids));
+    }
+
+    public getBookUnlockedIdsByDifficulty(difficulty: DifficultyMode): Promise<number[] | null> {
+        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        return this.getOwnedIdsFromStorage(this.getBookUnlockedIdsStorageKey(difficulty));
+    }
+
+    public addBookUnlockedIdsByDifficulty(difficulty: DifficultyMode, ids: number[]): void {
+        if (typeof (wx) === 'undefined') return;
+        const key = this.getBookUnlockedIdsStorageKey(difficulty);
+        const currentIds = this.normalizeOwnedIds(wx.getStorageSync(key));
+        wx.setStorageSync(key, this.normalizeOwnedIds([...currentIds, ...ids]));
+    }
+
+    public setBookProgressRewardStatesByDifficulty(
+        difficulty: DifficultyMode,
+        states: { progress: number; claimed: boolean }[]
+    ): void {
+        if (typeof (wx) === 'undefined') return;
+        wx.setStorageSync(this.getBookProgressRewardStorageKey(difficulty), this.normalizeBookProgressRewardStates(states));
+    }
+
+    public getBookProgressRewardStatesByDifficulty(
+        difficulty: DifficultyMode
+    ): Promise<{ progress: number; claimed: boolean }[] | null> {
+        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        return new Promise((resolve) => {
+            wx.getStorage({
+                key: this.getBookProgressRewardStorageKey(difficulty),
+                success: (res) => {
+                    resolve(this.normalizeBookProgressRewardStates(res.data));
+                },
+                fail: () => {
+                    resolve(null);
+                }
+            });
+        });
+    }
+
+    public getBookProgressRewardClaimedProgressesByDifficulty(difficulty: DifficultyMode): Promise<number[] | null> {
+        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        return this.getBookProgressRewardStatesByDifficulty(difficulty).then((states) => {
+            if (!states) {
+                return null;
+            }
+
+            return states
+                .filter((state) => state.claimed)
+                .map((state) => state.progress);
+        });
+    }
+
+    public setBookProgressRewardClaimedByDifficulty(
+        difficulty: DifficultyMode,
+        progress: number,
+        claimed: boolean = true
+    ): void {
+        if (typeof (wx) === 'undefined') return;
+        const key = this.getBookProgressRewardStorageKey(difficulty);
+        const states = this.normalizeBookProgressRewardStates(wx.getStorageSync(key));
+        const safeProgress = Math.max(0, Math.floor(Number(progress) || 0));
+        if (safeProgress <= 0) {
+            return;
+        }
+
+        const index = states.findIndex((state) => state.progress === safeProgress);
+        if (index >= 0) {
+            states[index].claimed = claimed;
+        } else {
+            states.push({ progress: safeProgress, claimed });
+        }
+        wx.setStorageSync(key, this.normalizeBookProgressRewardStates(states));
+    }
+
+    /**
+     * 短振动
+     * @param type 振动强度类型：'heavy'（重）、'medium'（中）、'light'（轻），默认 'medium'
+     */
+    public vibrateShort(
+        type: 'heavy' | 'medium' | 'light' = 'medium'
+    ): void {
+        if (typeof (wx) === 'undefined') {
+            console.warn('不在微信小游戏环境中');
+            return;
+        }
+
+        if (typeof wx.vibrateShort !== 'function') {
+            console.warn('wx.vibrateShort 不可用');
+            return;
+        }
+
+        wx.vibrateShort({
+            type,
+            success: () => {
+                console.log('短振动成功');
+            },
+            fail: (err: any) => {
+                console.warn('短振动失败:', err);
+            }
+        });
+    }
+
+    public setShake(isShake: boolean){
+        if (typeof (wx) === 'undefined') {
+            console.warn('不在微信小游戏环境中');
+            return null;
+        }
+
+        wx.setStorageSync('shake', isShake == true ? 1 : 0);
+    }
+
+    public getShake(): Promise<number | null>{
+        if (typeof (wx) === 'undefined') {
+            console.warn('不在微信小游戏环境中');
+            return null;
+        }
+
+        return new Promise((resolve) => {
+            wx.getStorage({
+                key: 'shake',
+                success (res) {
+                    resolve(res.data);
+                },
+                fail () {
+                    console.log('getShake fail');
+                    resolve(null);
+                }
+            });
+        });
+    }
+
+    /**
+     * 设置左右手设置
+     * @param handSetting -1:左手  1:右手
+     */
+    public setHandSetting(handSetting: number): void {
+        if (typeof (wx) === 'undefined') {
+            console.warn('不在微信小游戏环境中');
+            return;
+        }
+
+        wx.setStorageSync('hand_setting', handSetting);
+    }
+
+    /**
+     * 获取左右手设置
+     * @returns -1:左手  1:右手  null:未设置
+     */
+    public getHandSetting(): Promise<number | null> {
+        if (typeof (wx) === 'undefined') {
+            console.warn('不在微信小游戏环境中');
+            return Promise.resolve(null);
+        }
+
+        return new Promise((resolve) => {
+            wx.getStorage({
+                key: 'hand_setting',
+                success (res) {
+                    resolve(res.data);
+                },
+                fail () {
+                    console.log('getHandSetting fail');
+                    resolve(null);
+                }
+            });
+        });
+    }
+
+    public static get instance(): WXManager | null {
+        const gameManager = GameManager.getInstance();
+        return gameManager?.wxManager ?? null;
+    }
+
+    /**
+     * 设置音乐开关
+     */
+    public setMusic(isOn: boolean): void {
+        if (typeof (wx) === 'undefined') return;
+        wx.setStorageSync('music', isOn ? 1 : 0);
+    }
+
+    /**
+     * 获取音乐开关
+     */
+    public getMusic(): Promise<number | null> {
+        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        return new Promise((resolve) => {
+            wx.getStorage({
+                key: 'music',
+                success(res) {
+                    resolve(res.data);
+                },
+                fail() {
+                    resolve(null);
+                }
+            });
+        });
+    }
+
+    /**
+     * 设置音效开关
+     */
+    public setAudio(isOn: boolean): void {
+        if (typeof (wx) === 'undefined') return;
+        wx.setStorageSync('audio', isOn ? 1 : 0);
+    }
+
+    /**
+     * 获取音效开关
+     */
+    public getAudio(): Promise<number | null> {
+        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        return new Promise((resolve) => {
+            wx.getStorage({
+                key: 'audio',
+                success(res) {
+                    resolve(res.data);
+                },
+                fail() {
+                    resolve(null);
+                }
+            });
+        });
+    }
+
+    /**
+     * 将像素数据保存到系统相册
+     * @param width 纹理宽度
+     * @param height 纹理高度
+     * @param byteArray 像素数据（RGBA）
+     */
+    public saveImageToPhotosAlbum(
+        width: number,
+        height: number,
+        byteArray: Uint8Array,
+        background?: any
+    ): void {
+        if (typeof (wx) === 'undefined') {
+            console.warn('不在微信小游戏环境中');
+            return;
+        }
+
+        // 创建离屏 canvas
+        const canvas = wx.createCanvas();
+        const outputWidth = Math.max(1, Math.floor(background?.outputWidth ?? width));
+        const outputHeight = Math.max(1, Math.floor(background?.outputHeight ?? height));
+        canvas.width = outputWidth;
+        canvas.height = outputHeight;
+
+        const ctx = canvas.getContext('2d') as any;
+        if (!ctx) {
+            console.warn('获取 canvas 2d context 失败');
+            return;
+        }
+
+        const drawResultLayer = () => {
+            const layerCanvas = wx.createCanvas();
+            layerCanvas.width = width;
+            layerCanvas.height = height;
+            const layerCtx = layerCanvas.getContext('2d') as any;
+            if (!layerCtx) {
+                console.warn('获取截图图层 canvas 2d context 失败');
+                return;
+            }
+
+            const imageData = layerCtx.createImageData(width, height);
+            imageData.data.set(byteArray);
+            layerCtx.putImageData(imageData, 0, 0);
+            const layerX = Math.floor(background?.layerX ?? 0);
+            const layerY = Math.floor(background?.layerY ?? 0);
+            const layerWidth = Math.max(1, Math.floor(background?.layerWidth ?? width));
+            const layerHeight = Math.max(1, Math.floor(background?.layerHeight ?? height));
+            ctx.drawImage(layerCanvas, 0, 0, width, height, layerX, layerY, layerWidth, layerHeight);
+            this.exportCanvasToPhotosAlbum(canvas, outputWidth, outputHeight);
+        };
+
+        const backgroundSources = this.getCanvasImageSources(background);
+        if (backgroundSources.length > 0) {
+            this.drawBackgroundFromSources(canvas, ctx, backgroundSources, outputWidth, outputHeight, drawResultLayer);
+            return;
+        }
+
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, outputWidth, outputHeight);
+        drawResultLayer();
+    }
+
+    private getCanvasImageSources(background: any): any[] {
+        const sources: any[] = [];
+        const addSource = (source: any) => {
+            if (!source || source === '[object Object]') {
+                return;
+            }
+            if (typeof source === 'string' && source.trim().length <= 0) {
+                return;
+            }
+            if (sources.indexOf(source) < 0) {
+                sources.push(source);
+            }
+        };
+
+        const imageAsset = background?.imageAsset ?? null;
+
+        addSource(imageAsset?.data);
+        addSource(imageAsset?.nativeUrl);
+        addSource(imageAsset?._nativeUrl);
+        addSource(background?.resourcePath);
+
+        return sources;
+    }
+
+    private drawBackgroundFromSources(
+        canvas: any,
+        ctx: any,
+        sources: any[],
+        width: number,
+        height: number,
+        onComplete: () => void
+    ): void {
+        let index = 0;
+        const tryNext = () => {
+            const source = sources[index++];
+            if (!source) {
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, width, height);
+                onComplete();
+                return;
+            }
+
+            if (typeof source !== 'string') {
+                try {
+                    ctx.drawImage(source, 0, 0, width, height);
+                    onComplete();
+                } catch (err) {
+                    console.warn('绘制截图背景失败:', err);
+                    tryNext();
+                }
+                return;
+            }
+
+            const image = canvas.createImage?.() ?? wx.createImage();
+            image.onload = () => {
+                ctx.drawImage(image, 0, 0, width, height);
+                onComplete();
+            };
+            image.onerror = (err: any) => {
+                console.warn('加载截图背景失败:', source, err);
+                tryNext();
+            };
+            image.src = source;
+        };
+
+        tryNext();
+    }
+
+    private exportCanvasToPhotosAlbum(canvas: any, width: number, height: number): void {
+
+        // 将 canvas 导出为临时文件路径
+        canvas.toTempFilePath({
+            x: 0,
+            y: 0,
+            width,
+            height,
+            destWidth: width,
+            destHeight: height,
+            fileType: 'png',
+            quality: 1,
+            success: (res: any) => {
+                console.log('临时图片路径:', res.tempFilePath);
+                // 保存到系统相册
+                wx.saveImageToPhotosAlbum({
+                    filePath: res.tempFilePath,
+                    success: () => {
+                        console.log('图片已保存到相册');
+                    },
+                    fail: (err: any) => {
+                        console.warn('保存到相册失败:', err);
+                        // 用户可能未授权，提示授权
+                        if (err.errMsg && err.errMsg.includes('auth deny')) {
+                            wx.showModal({
+                                title: '提示',
+                                content: '需要您授权保存图片到相册，请在设置中开启权限',
+                                showCancel: false
+                            });
+                        }
+                    }
+                });
+            },
+            fail: (err: any) => {
+                console.warn('导出临时图片失败:', err);
+            }
+        });
+    }
+
+    /**
+     * 设置能量
+     */
+    public setPower(power: number): void {
+        if (typeof (wx) === 'undefined') return;
+        wx.setStorageSync('power', power);
+    }
+
+    /**
+     * 获取能量
+     */
+    public getPower(): Promise<number | null> {
+        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        return new Promise((resolve) => {
+            wx.getStorage({
+                key: 'power',
+                success(res) {
+                    resolve(res.data);
+                },
+                fail() {
+                    resolve(null);
+                }
+            });
+        });
+    }
+
+    /**
+     * 保存金币数量到本地缓存
+     */
+    public setCoins(coins: number): void {
+        if (typeof (wx) === 'undefined') return;
+        wx.setStorageSync('coins', coins);
+    }
+
+    /**
+     * 获取本地缓存的金币数量
+     */
+    public getCoins(): Promise<number | null> {
+        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        return new Promise((resolve) => {
+            wx.getStorage({
+                key: 'coins',
+                success(res) {
+                    resolve(res.data);
+                },
+                fail() {
+                    resolve(null);
+                }
+            });
+        });
+    }
+
+    /**
+     * 保存经验值到本地缓存
+     */
+    public setExperience(experience: number): void {
+        if (typeof (wx) === 'undefined') return;
+        wx.setStorageSync('experience', Math.max(0, Math.floor(Number(experience) || 0)));
+    }
+
+    /**
+     * 获取本地缓存的经验值
+     */
+    public getExperience(): Promise<number | null> {
+        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        return new Promise((resolve) => {
+            wx.getStorage({
+                key: 'experience',
+                success(res) {
+                    resolve(res.data);
+                },
+                fail() {
+                    resolve(null);
+                }
+            });
+        });
+    }
+
+    public setFixSkillCount(count: number): void {
+        if (typeof (wx) === 'undefined') return;
+        wx.setStorageSync('fix_skill_count', count);
+    }
+
+    public getFixSkillCount(): Promise<number | null> {
+        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        return new Promise((resolve) => {
+            wx.getStorage({
+                key: 'fix_skill_count',
+                success(res) {
+                    resolve(res.data);
+                },
+                fail() {
+                    resolve(null);
+                }
+            });
+        });
+    }
+
+    public setTimeSkillCount(count: number): void {
+        if (typeof (wx) === 'undefined') return;
+        wx.setStorageSync('time_skill_count', count);
+    }
+
+    public getTimeSkillCount(): Promise<number | null> {
+        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        return new Promise((resolve) => {
+            wx.getStorage({
+                key: 'time_skill_count',
+                success(res) {
+                    resolve(res.data);
+                },
+                fail() {
+                    resolve(null);
+                }
+            });
+        });
+    }
+
+    public setPaletteSkillCount(count: number): void {
+        if (typeof (wx) === 'undefined') return;
+        wx.setStorageSync('palette_skill_count', count);
+    }
+
+    public setRoadPassRewardClaimState(state: RoadPassRewardClaimState): void {
+        if (typeof (wx) === 'undefined') return;
+        wx.setStorageSync(
+            WXManager.ROAD_PASS_FREE_CLAIMED_LEVELS_STORAGE_KEY,
+            this.normalizeClaimedLevels(state?.freeClaimedLevels)
+        );
+        wx.setStorageSync(
+            WXManager.ROAD_PASS_PREMIUM_CLAIMED_LEVELS_STORAGE_KEY,
+            this.normalizeClaimedLevels(state?.premiumClaimedLevels)
+        );
+    }
+
+    public async getRoadPassRewardClaimState(): Promise<RoadPassRewardClaimState | null> {
+        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+
+        const [freeClaimedLevels, premiumClaimedLevels] = await Promise.all([
+            this.getClaimedLevelsFromStorage(WXManager.ROAD_PASS_FREE_CLAIMED_LEVELS_STORAGE_KEY),
+            this.getClaimedLevelsFromStorage(WXManager.ROAD_PASS_PREMIUM_CLAIMED_LEVELS_STORAGE_KEY)
+        ]);
+
+        if (!freeClaimedLevels && !premiumClaimedLevels) {
+            return null;
+        }
+
+        return {
+            freeClaimedLevels: freeClaimedLevels ?? [],
+            premiumClaimedLevels: premiumClaimedLevels ?? []
+        };
+    }
+
+    public setRoadPassFreeRewardClaimed(level: number, claimed: boolean = true): void {
+        if (typeof (wx) === 'undefined') return;
+        this.setClaimedLevel(WXManager.ROAD_PASS_FREE_CLAIMED_LEVELS_STORAGE_KEY, level, claimed);
+    }
+
+    public setRoadPassPremiumRewardClaimed(level: number, claimed: boolean = true): void {
+        if (typeof (wx) === 'undefined') return;
+        this.setClaimedLevel(WXManager.ROAD_PASS_PREMIUM_CLAIMED_LEVELS_STORAGE_KEY, level, claimed);
+    }
+
+    public setRoadPassPremiumUnlocked(unlocked: boolean): void {
+        if (typeof (wx) === 'undefined') return;
+        wx.setStorageSync(WXManager.ROAD_PASS_PREMIUM_UNLOCKED_STORAGE_KEY, unlocked ? 1 : 0);
+    }
+
+    public getRoadPassPremiumUnlocked(): Promise<boolean | null> {
+        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        return new Promise((resolve) => {
+            wx.getStorage({
+                key: WXManager.ROAD_PASS_PREMIUM_UNLOCKED_STORAGE_KEY,
+                success(res) {
+                    resolve(Number(res.data) === 1 || res.data === true);
+                },
+                fail() {
+                    resolve(null);
+                }
+            });
+        });
+    }
+
+    public setRoadPassVideoWatchCount(count: number): void {
+        if (typeof (wx) === 'undefined') return;
+        wx.setStorageSync(
+            WXManager.ROAD_PASS_VIDEO_WATCH_COUNT_STORAGE_KEY,
+            Math.max(0, Math.floor(Number(count) || 0))
+        );
+    }
+
+    public getRoadPassVideoWatchCount(): Promise<number | null> {
+        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        return new Promise((resolve) => {
+            wx.getStorage({
+                key: WXManager.ROAD_PASS_VIDEO_WATCH_COUNT_STORAGE_KEY,
+                success(res) {
+                    resolve(Math.max(0, Math.floor(Number(res.data) || 0)));
+                },
+                fail() {
+                    resolve(null);
+                }
+            });
+        });
+    }
+
+    public getUserSex(): string {
+        if (typeof (wx) === 'undefined') {
+            return 'male';
+        }
+
+        const sex = String(wx.getStorageSync(WXManager.USER_SEX_STORAGE_KEY) || '').trim();
+        return sex === 'female' ? 'female' : 'male';
+    }
+
+    public setUserSex(sex: string): void {
+        if (typeof (wx) === 'undefined') {
+            return;
+        }
+
+        const normalizedSex = sex === 'female' ? 'female' : 'male';
+        wx.setStorageSync(WXManager.USER_SEX_STORAGE_KEY, normalizedSex);
+    }
+
+    public setAuthorizedAvatarUrl(avatarUrl: string): void {
+        if (typeof (wx) === 'undefined') return;
+
+        const safeAvatarUrl = String(avatarUrl || '').trim();
+        if (safeAvatarUrl) {
+            wx.setStorageSync(WXManager.USER_AUTHORIZED_AVATAR_URL_STORAGE_KEY, safeAvatarUrl);
+            return;
+        }
+
+        wx.removeStorageSync(WXManager.USER_AUTHORIZED_AVATAR_URL_STORAGE_KEY);
+    }
+
+    public getAuthorizedAvatarUrl(): Promise<string | null> {
+        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        return new Promise((resolve) => {
+            wx.getStorage({
+                key: WXManager.USER_AUTHORIZED_AVATAR_URL_STORAGE_KEY,
+                success(res) {
+                    const avatarUrl = String(res.data || '').trim();
+                    resolve(avatarUrl || null);
+                },
+                fail() {
+                    resolve(null);
+                }
+            });
+        });
+    }
+
+    public setCurrentAvatarSource(avatarSource: string): void {
+        if (typeof (wx) === 'undefined') return;
+
+        const safeAvatarSource = String(avatarSource || '').trim();
+        if (safeAvatarSource) {
+            wx.setStorageSync(WXManager.USER_CURRENT_AVATAR_SOURCE_STORAGE_KEY, safeAvatarSource);
+            return;
+        }
+
+        wx.removeStorageSync(WXManager.USER_CURRENT_AVATAR_SOURCE_STORAGE_KEY);
+    }
+
+    public getCurrentAvatarSource(): Promise<string | null> {
+        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        return new Promise((resolve) => {
+            wx.getStorage({
+                key: WXManager.USER_CURRENT_AVATAR_SOURCE_STORAGE_KEY,
+                success(res) {
+                    const avatarSource = String(res.data || '').trim();
+                    resolve(avatarSource || null);
+                },
+                fail() {
+                    resolve(null);
+                }
+            });
+        });
+    }
+
+    public setAvatarFrameId(id: number): void {
+        if (typeof (wx) === 'undefined') return;
+        wx.setStorageSync(WXManager.USER_AVATAR_FRAME_ID_STORAGE_KEY, Math.max(0, Math.floor(Number(id) || 0)));
+    }
+
+    public getAvatarFrameId(): Promise<number | null> {
+        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        return new Promise((resolve) => {
+            wx.getStorage({
+                key: WXManager.USER_AVATAR_FRAME_ID_STORAGE_KEY,
+                success(res) {
+                    resolve(Math.max(0, Math.floor(Number(res.data) || 0)));
+                },
+                fail() {
+                    resolve(null);
+                }
+            });
+        });
+    }
+
+    public setTweezerId(id: number): void {
+        if (typeof (wx) === 'undefined') return;
+        wx.setStorageSync(WXManager.USER_TWEEZER_ID_STORAGE_KEY, Math.max(0, Math.floor(Number(id) || 0)));
+    }
+
+    public getTweezerId(): Promise<number | null> {
+        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        return new Promise((resolve) => {
+            wx.getStorage({
+                key: WXManager.USER_TWEEZER_ID_STORAGE_KEY,
+                success(res) {
+                    resolve(Math.max(0, Math.floor(Number(res.data) || 0)));
+                },
+                fail() {
+                    resolve(null);
+                }
+            });
+        });
+    }
+
+    public setIronId(id: number): void {
+        if (typeof (wx) === 'undefined') return;
+        wx.setStorageSync(WXManager.USER_IRON_ID_STORAGE_KEY, Math.max(0, Math.floor(Number(id) || 0)));
+    }
+
+    public getIronId(): Promise<number | null> {
+        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        return new Promise((resolve) => {
+            wx.getStorage({
+                key: WXManager.USER_IRON_ID_STORAGE_KEY,
+                success(res) {
+                    resolve(Math.max(0, Math.floor(Number(res.data) || 0)));
+                },
+                fail() {
+                    resolve(null);
+                }
+            });
+        });
+    }
+
+    public setOwnedAvatarIds(ids: number[]): void {
+        if (typeof (wx) === 'undefined') return;
+        wx.setStorageSync(WXManager.USER_OWNED_AVATAR_IDS_STORAGE_KEY, this.normalizeOwnedIds(ids));
+    }
+
+    public getOwnedAvatarIds(): Promise<number[] | null> {
+        return this.getOwnedIdsFromStorage(WXManager.USER_OWNED_AVATAR_IDS_STORAGE_KEY);
+    }
+
+    public setOwnedAvatarFrameIds(ids: number[]): void {
+        if (typeof (wx) === 'undefined') return;
+        wx.setStorageSync(WXManager.USER_OWNED_AVATAR_FRAME_IDS_STORAGE_KEY, this.normalizeOwnedIds(ids));
+    }
+
+    public getOwnedAvatarFrameIds(): Promise<number[] | null> {
+        return this.getOwnedIdsFromStorage(WXManager.USER_OWNED_AVATAR_FRAME_IDS_STORAGE_KEY);
+    }
+
+    public setOwnedTweezerIds(ids: number[]): void {
+        if (typeof (wx) === 'undefined') return;
+        wx.setStorageSync(WXManager.USER_OWNED_TWEEZER_IDS_STORAGE_KEY, this.normalizeOwnedIds(ids));
+    }
+
+    public getOwnedTweezerIds(): Promise<number[] | null> {
+        return this.getOwnedIdsFromStorage(WXManager.USER_OWNED_TWEEZER_IDS_STORAGE_KEY);
+    }
+
+    public setOwnedIronIds(ids: number[]): void {
+        if (typeof (wx) === 'undefined') return;
+        wx.setStorageSync(WXManager.USER_OWNED_IRON_IDS_STORAGE_KEY, this.normalizeOwnedIds(ids));
+    }
+
+    public getOwnedIronIds(): Promise<number[] | null> {
+        return this.getOwnedIdsFromStorage(WXManager.USER_OWNED_IRON_IDS_STORAGE_KEY);
+    }
+
+    public setOwnedAchievementIconIds(ids: number[]): void {
+        if (typeof (wx) === 'undefined') return;
+        wx.setStorageSync(WXManager.USER_OWNED_ACHIEVEMENT_ICON_IDS_STORAGE_KEY, this.normalizeOwnedIds(ids));
+    }
+
+    public getOwnedAchievementIconIds(): Promise<number[] | null> {
+        return this.getOwnedIdsFromStorage(WXManager.USER_OWNED_ACHIEVEMENT_ICON_IDS_STORAGE_KEY);
+    }
+
+    public getPaletteSkillCount(): Promise<number | null> {
+        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        return new Promise((resolve) => {
+            wx.getStorage({
+                key: 'palette_skill_count',
+                success(res) {
+                    resolve(res.data);
+                },
+                fail() {
+                    resolve(null);
+                }
+            });
+        });
+    }
+
+    private getOwnedIdsFromStorage(key: string): Promise<number[] | null> {
+        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        return new Promise((resolve) => {
+            wx.getStorage({
+                key,
+                success: (res) => {
+                    const normalizedIds = this.normalizeOwnedIds(res.data);
+                    resolve(normalizedIds.length > 0 ? normalizedIds : null);
+                },
+                fail: () => {
+                    resolve(null);
+                }
+            });
+        });
+    }
+
+    private getClaimedLevelsFromStorage(key: string): Promise<number[] | null> {
+        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        return new Promise((resolve) => {
+            wx.getStorage({
+                key,
+                success: (res) => {
+                    const normalizedLevels = this.normalizeClaimedLevels(res.data);
+                    resolve(normalizedLevels.length > 0 ? normalizedLevels : null);
+                },
+                fail: () => {
+                    resolve(null);
+                }
+            });
+        });
+    }
+
+    private setClaimedLevel(key: string, level: number, claimed: boolean): void {
+        if (typeof (wx) === 'undefined') return;
+        const safeLevel = Math.max(0, Math.floor(Number(level) || 0));
+        if (safeLevel <= 0) {
+            return;
+        }
+
+        const levels = new Set(this.normalizeClaimedLevels(wx.getStorageSync(key)));
+        if (claimed) {
+            levels.add(safeLevel);
+        } else {
+            levels.delete(safeLevel);
+        }
+
+        wx.setStorageSync(key, this.normalizeClaimedLevels(Array.from(levels)));
+    }
+
+    private normalizeOwnedIds(ids: unknown): number[] {
+        if (!Array.isArray(ids)) {
+            return [];
+        }
+
+        const normalizedIds = Array.from(new Set(
+            ids
+                .map((id) => Math.max(1, Math.floor(Number(id) || 0)))
+                .filter((id) => id >= 1)
+        ));
+        normalizedIds.sort((a, b) => a - b);
+        return normalizedIds;
+    }
+
+    private normalizeClaimedLevels(levels: unknown): number[] {
+        if (!Array.isArray(levels)) {
+            return [];
+        }
+
+        const normalizedLevels = Array.from(new Set(
+            levels
+                .map((level) => Math.max(0, Math.floor(Number(level) || 0)))
+                .filter((level) => level > 0)
+        ));
+        normalizedLevels.sort((a, b) => a - b);
+        return normalizedLevels;
+    }
+
+    private normalizeBookProgressRewardStates(states: unknown): { progress: number; claimed: boolean }[] {
+        if (!Array.isArray(states)) {
+            return [];
+        }
+
+        const stateMap = new Map<number, boolean>();
+        for (const state of states) {
+            const progress = Math.max(0, Math.floor(Number((state as any)?.progress) || 0));
+            if (progress <= 0) {
+                continue;
+            }
+
+            stateMap.set(progress, !!(state as any)?.claimed);
+        }
+
+        return Array.from(stateMap.entries())
+            .map(([progress, claimed]) => ({ progress, claimed }))
+            .sort((a, b) => a.progress - b.progress);
+    }
+
+    private getBookUnlockedIdsStorageKey(difficulty: DifficultyMode): string {
+        return `${WXManager.BOOK_UNLOCKED_IDS_STORAGE_PREFIX}_${difficulty}`;
+    }
+
+    private getBookProgressRewardStorageKey(difficulty: DifficultyMode): string {
+        return `${WXManager.BOOK_PROGRESS_REWARD_STORAGE_PREFIX}_${difficulty}`;
+    }
+
+    public setShopData(shopData: ShopRuntimeData): void {
+        if (typeof (wx) === 'undefined') return;
+        wx.setStorageSync('shop_data', shopData);
+    }
+
+    public getShopData(): Promise<ShopRuntimeData | null> {
+        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        return new Promise((resolve) => {
+            wx.getStorage({
+                key: 'shop_data',
+                success(res) {
+                    resolve((res.data as ShopRuntimeData) ?? null);
+                },
+                fail() {
+                    resolve(null);
+                }
+            });
+        });
+    }
+
+    public setShopRefreshTime(refreshTime: number): void {
+        if (typeof (wx) === 'undefined') return;
+        wx.setStorageSync('shop_refresh_time', refreshTime);
+    }
+
+    public getShopRefreshTime(): Promise<number | null> {
+        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        return new Promise((resolve) => {
+            wx.getStorage({
+                key: 'shop_refresh_time',
+                success(res) {
+                    resolve(typeof res.data === 'number' ? res.data : Number(res.data) || null);
+                },
+                fail() {
+                    resolve(null);
+                }
+            });
+        });
+    }
+
+    /**
+     * 设置体力下次恢复时间（时间戳，毫秒）
+     */
+    public setPowerNextRegenTime(time: number): void {
+        if (typeof (wx) === 'undefined') return;
+        wx.setStorageSync('power_next_regen', time);
+    }
+
+    /**
+     * 获取体力下次恢复时间（时间戳，毫秒）
+     */
+    public getPowerNextRegenTime(): Promise<number | null> {
+        if (typeof (wx) === 'undefined') return Promise.resolve(null);
+        return new Promise((resolve) => {
+            wx.getStorage({
+                key: 'power_next_regen',
+                success(res) {
+                    resolve(res.data);
+                },
+                fail() {
+                    resolve(null);
+                }
+            });
+        });
+    }
+
+    public getPowerNextRegenTimeSync(): number {
+        if (typeof (wx) === 'undefined') return 0;
+        return Math.max(0, Number(wx.getStorageSync('power_next_regen')) || 0);
+    }
+
+    // ========== 原生模板广告 ==========
+    private customAd: any = null;
+    private nativeAdStyle = { left: 0, top: 0, width: 0 };
+    private nativeAdVisibleRequested: boolean = false;
+    // 原生模板广告位 id
+    private readonly NATIVE_AD_UNIT_ID: string = 'adunit-e0eab827ac9fbb10';
+
+    private applyNativeAdStyle(): void {
+        if (!this.customAd?.style) return;
+        this.customAd.style.left = this.nativeAdStyle.left;
+        this.customAd.style.top = this.nativeAdStyle.top;
+        this.customAd.style.width = this.nativeAdStyle.width;
+        this.customAd.style.fixed = true;
+    }
+
+    private showNativeAdInternal(): void {
+        if (!this.customAd) return;
+        if (!this.nativeAdVisibleRequested) return;
+        this.customAd.show().catch((err: any) => {
+            console.warn('原生广告显示失败:', err);
+        });
+    }
+
+    private getWindowSize(): { width: number; height: number } | null {
+        if (typeof (wx) === 'undefined') return null;
+        const windowInfo = wx.getWindowInfo?.();
+        const width = windowInfo?.windowWidth;
+        const height = windowInfo?.windowHeight;
+        if (!width || !height) return null;
+        return { width, height };
+    }
+
+    /**
+     * 创建原生模板广告
+     * @param left 距离屏幕左侧像素（左上角为原点）
+     * @param top 距离屏幕顶部像素（左上角为原点）
+     * @param width 广告宽度
+     */
+    public createNativeAd(left: number, top: number, width: number): void {
+        if (typeof (wx) === 'undefined') return;
+
+        this.nativeAdStyle.left = Math.max(0, Math.floor(left));
+        this.nativeAdStyle.top = Math.max(0, Math.floor(top));
+        this.nativeAdStyle.width = Math.max(1, Math.floor(width));
+
+        try {
+            if (!this.customAd) {
+                this.customAd = wx.createCustomAd({
+                    adUnitId: this.NATIVE_AD_UNIT_ID,
+                    style: {
+                        left: this.nativeAdStyle.left,
+                        top: this.nativeAdStyle.top,
+                        width: this.nativeAdStyle.width,
+                        fixed: true
+                    }
+                });
+
+                this.customAd.onLoad(() => {
+                    console.log('原生广告加载成功', this.nativeAdStyle);
+                    this.applyNativeAdStyle();
+                    if (this.nativeAdVisibleRequested) {
+                        this.showNativeAdInternal();
+                    }
+                });
+
+                this.customAd.onError((err: any) => {
+                    console.warn('原生广告加载失败:', err);
+                });
+
+                this.customAd.onClose(() => {
+                    console.log('原生广告关闭');
+                });
+            }
+        } catch (e) {
+            console.warn('创建原生广告失败:', e);
+        }
+    }
+
+    /**
+     * 在屏幕底部创建原生模板广告
+     * @param width 广告宽度，默认铺满窗口宽度
+     * @param bottomMargin 距离底部的边距
+     * @param estimatedHeight 预估广告高度，用于计算 top
+     */
+    public createNativeAdAtBottom(bottomMargin: number = 0, estimatedHeight: number = 120): void {
+        const windowSize = this.getWindowSize();
+        if (!windowSize) return;
+
+        const adWidth = Math.max(1, windowSize.width);
+        const left = 0;
+        const top = Math.max(0, Math.floor(windowSize.height - estimatedHeight - bottomMargin));
+        this.createNativeAd(left, top, adWidth);
+    }
+
+    /**
+     * 隐藏原生广告
+     */
+    public hideNativeAd(): void {
+        this.nativeAdVisibleRequested = false;
+        if (!this.customAd) return;
+        this.customAd.hide?.();
+    }
+
+    /**
+     * 显示原生广告（如果未创建会自动创建并显示）
+     * @param bottomMargin 距离底部的边距，默认 0
+     * @param estimatedHeight 预估广告高度，默认 120
+     */
+    public showNativeAd(bottomMargin: number = 0, estimatedHeight: number = 120): void {
+        this.nativeAdVisibleRequested = true;
+        if (!this.customAd) {
+            this.createNativeAdAtBottom(bottomMargin, estimatedHeight);
+            return;
+        }
+        this.showNativeAdInternal();
+    }
+
+    /**
+     * 销毁原生广告
+     */
+    public destroyNativeAd(): void {
+        this.nativeAdVisibleRequested = false;
+        if (this.customAd) {
+            this.customAd.destroy();
+            this.customAd = null;
+        }
+    }
+
+    // ========== 原生格子广告 ==========
+    private nativeGridAd: any = null;
+    private nativeGridAdStyle = { left: 0, top: 0 };
+    private nativeGridAdVisibleRequested: boolean = false;
+    private readonly NATIVE_GRID_AD_UNIT_ID: string = 'adunit-4873c091df5fa489';
+
+    private showNativeGridAdInternal(): void {
+        if (!this.nativeGridAd) return;
+        if (!this.nativeGridAdVisibleRequested) return;
+        this.nativeGridAd.show().catch((err: any) => {
+            console.warn('原生格子广告显示失败:', err);
+        });
+    }
+
+    /**
+     * 创建原生格子广告（贴近屏幕右边）
+     * @param right 距离屏幕右侧像素（左上角为原点）
+     * @param top 距离屏幕顶部像素（左上角为原点）
+     */
+    public createNativeGridAd(right: number, top: number): void {
+        if (typeof (wx) === 'undefined') return;
+
+        const windowSize = this.getWindowSize();
+        if (!windowSize) return;
+
+        // 计算 left 位置使广告贴近屏幕右边
+        const adWidth = 56; // 广告宽度
+        const left = Math.max(0, Math.floor(windowSize.width - adWidth - right));
+
+        this.nativeGridAdStyle.left = left;
+        this.nativeGridAdStyle.top = Math.max(0, Math.floor(top));
+
+        try {
+            if (!this.nativeGridAd) {
+                this.nativeGridAd = wx.createCustomAd({
+                    adUnitId: this.NATIVE_GRID_AD_UNIT_ID,
+                    style: {
+                        left: this.nativeGridAdStyle.left,
+                        top: this.nativeGridAdStyle.top,
+                        width: adWidth,
+                        fixed: true
+                    }
+                });
+
+                this.nativeGridAd.onLoad(() => {
+                    console.log('原生格子广告加载成功');
+                    if (this.nativeGridAdVisibleRequested) {
+                        this.showNativeGridAdInternal();
+                    }
+                });
+
+                this.nativeGridAd.onError((err: any) => {
+                    console.warn('原生格子广告加载失败:', err);
+                });
+
+                this.nativeGridAd.onClose(() => {
+                    console.log('原生格子广告关闭');
+                });
+            }
+        } catch (e) {
+            console.warn('创建原生格子广告失败:', e);
+        }
+    }
+
+    /**
+     * 在指定位置创建原生格子广告
+     * @param topPercent 距离屏幕顶部的百分比
+     */
+    public createNativeGridAdAtBottom(topPercent: number): void {
+        const windowSize = this.getWindowSize();
+        if (!windowSize) return;
+
+        const top = Math.floor(windowSize.height * topPercent);
+        this.createNativeGridAd(0, top);
+    }
+
+    /**
+     * 销毁原生格子广告
+     */
+    public destroyNativeGridAd(): void {
+        this.nativeGridAdVisibleRequested = false;
+        if (this.nativeGridAd) {
+            this.nativeGridAd.destroy();
+            this.nativeGridAd = null;
+        }
+    }
+
+    /**
+     * 显示原生格子广告（如果未创建会自动创建并显示）
+     * @param topPercent 距离屏幕顶部的百分比
+     */
+    public showNativeGridAd(topPercent: number): void {
+        this.nativeGridAdVisibleRequested = true;
+        if (!this.nativeGridAd) {
+            this.createNativeGridAdAtBottom(topPercent);
+            return;
+        }
+        this.showNativeGridAdInternal();
+    }
+
+    /**
+     * 隐藏原生格子广告
+     */
+    public hideNativeGridAd(): void {
+        this.nativeGridAdVisibleRequested = false;
+        if (!this.nativeGridAd) return;
+        this.nativeGridAd.hide?.();
+    }
+
+    // ========== 登录凭证 ==========
+
+    /**
+     * 调用微信登录接口，获取登录凭证（code）
+     * 用于换取 openid、session_key 等用户标识
+     * @see https://developers.weixin.qq.com/miniprogram/dev/api/open-api/login/wx.login.html
+     * @returns Promise<{ code: string | null; errMsg: string }>
+     */
+    public login(): Promise<{ code: string | null; errMsg: string }> {
+        return new Promise((resolve) => {
+            if (typeof (wx) === 'undefined') {
+                console.warn('不在微信小游戏环境中');
+                resolve({ code: null, errMsg: 'not in wechat environment' });
+                return;
+            }
+
+            wx.login({
+                success: (res) => {
+                    if (res.code) {
+                        console.log('wx.login 成功，code:', res.code);
+                        resolve({ code: res.code, errMsg: 'ok' });
+                    } else {
+                        console.warn('wx.login 成功但未返回 code:', res);
+                        resolve({ code: null, errMsg: 'no code returned' });
+                    }
+                },
+                fail: (err) => {
+                    console.error('wx.login 失败:', err);
+                    resolve({ code: null, errMsg: err?.errMsg || 'login failed' });
+                }
+            });
+        });
+    }
+
+    /**
+     * 检查登录态是否过期
+     * 通过 wx.checkSession 检查小程序登录态是否过期
+     * @see https://developers.weixin.qq.com/miniprogram/dev/api/open-api/login/wx.checkSession.html
+     * @returns Promise<boolean> 是否有效
+     */
+    public checkSession(): Promise<boolean> {
+        return new Promise((resolve) => {
+            if (typeof (wx) === 'undefined') {
+                resolve(false);
+                return;
+            }
+
+            wx.checkSession({
+                success: () => {
+                    console.log('session 有效');
+                    resolve(true);
+                },
+                fail: () => {
+                    console.log('session 已过期，需要重新登录');
+                    resolve(false);
+                }
+            });
+        });
+    }
+
+    // ========== 云函数调用 ==========
+
+    /**
+     * 获取用户 openid
+     * 流程：wx.login -> 云函数 get_openid -> 保存到 storage
+     * @returns Promise<string | null> openid
+     */
+    public async getOpenId(): Promise<string | null> {
+        // ✅ 添加环境检测
+        if (typeof wx === 'undefined') {
+            console.warn('不在微信小游戏环境中');
+            return null;
+        }
+        // 先检查本地是否已有缓存
+        const cachedOpenid = wx.getStorageSync('openid');
+        if (cachedOpenid) {
+            console.log('使用缓存的 openid:', cachedOpenid);
+            return cachedOpenid;
+        }
+
+        // 获取登录凭证
+        const loginResult = await this.login();
+        if (!loginResult.code) {
+            console.warn('获取登录凭证失败:', loginResult.errMsg);
+            return null;
+        }
+
+        // 调用云函数获取 openid
+        const res = await callFunction('get_openid', { js_code: loginResult.code });
+
+        if (res.result?.success && res.result.openid) {
+            // 保存到本地缓存
+            wx.setStorageSync('openid', res.result.openid);
+            console.log('获取 openid 成功:', res.result.openid);
+            return res.result.openid;
+        }
+
+        console.warn('获取 openid 失败:', res.result?.error);
+        return null;
+    }
+
+    // ========== 用户信息 ==========
+
+    // 用户昵称缓存
+    public get nickname(): string {
+        return this.ensureUserProfileLoadedFromCache()?.nickname ?? '';
+    }
+
+    private get _nickname(): string {
+        return this.nickname;
+    }
+
+
+    // 用户头像 URL 缓存
+    public get avatarUrl(): string {
+        return this.ensureUserProfileLoadedFromCache()?.avatarUrl ?? '';
+    }
+
+    private get _avatarUrl(): string {
+        return this.avatarUrl;
+    }
+
+    public hasRealUserProfile(): boolean {
+        return this.ensureUserProfileLoadedFromCache()?.hasRealUserProfile() ?? false;
+    }
+
+    private isFallbackNickname(nickname: string): boolean {
+        return /^豆友([A-Za-z0-9]{4})?$/.test((nickname || '').trim());
+    }
+
+    private isRealUserProfile(nickname: string, avatarUrl: string): boolean {
+        const safeNickname = (nickname || '').trim();
+        const safeAvatarUrl = (avatarUrl || '').trim();
+        return !!safeNickname && !this.isFallbackNickname(safeNickname) && !!safeAvatarUrl;
+    }
+
+    private restoreCachedUserProfile(): void {
+        const userInfo = this.getUserInfoModel();
+        if (!userInfo || typeof (wx) === 'undefined') {
+            return;
+        }
+
+        const nickname = String(wx.getStorageSync(WXManager.USER_NICKNAME_STORAGE_KEY) || '').trim();
+        const avatarUrl = String(wx.getStorageSync(WXManager.USER_AVATAR_URL_STORAGE_KEY) || '').trim();
+
+        if (UserInfo.isRealUserProfile(nickname, avatarUrl)) {
+            userInfo.setProfile(nickname, avatarUrl);
+            return;
+        }
+
+        userInfo.clearProfile();
+    }
+
+    private saveCachedUserProfile(): void {
+        const userInfo = this.getUserInfoModel();
+        if (!userInfo || typeof (wx) === 'undefined') {
+            return;
+        }
+
+        if (!userInfo.hasRealUserProfile()) {
+            this.clearCachedUserProfile();
+            return;
+        }
+
+        wx.setStorageSync(WXManager.USER_NICKNAME_STORAGE_KEY, userInfo.nickname.trim());
+        wx.setStorageSync(WXManager.USER_AVATAR_URL_STORAGE_KEY, userInfo.avatarUrl.trim());
+    }
+
+    private clearCachedUserProfile(): void {
+        if (typeof (wx) === 'undefined') {
+            return;
+        }
+
+        wx.removeStorageSync(WXManager.USER_NICKNAME_STORAGE_KEY);
+        wx.removeStorageSync(WXManager.USER_AVATAR_URL_STORAGE_KEY);
+    }
+
+    /**
+     * 检查是否已授权读取用户信息
+     */
+    public hasUserInfoPermission(): Promise<UserInfoAuthorizeState> {
+        return new Promise((resolve) => {
+            if (typeof (wx) === 'undefined') {
+                resolve('unset');
+                return;
+            }
+
+            wx.getSetting({
+                success: (res) => {
+                    console.log('[WXManager] hasUserInfoPermission getSetting result:', {
+                        authSetting: res?.authSetting,
+                        scopeUserInfo: res?.authSetting?.['scope.userInfo']
+                    });
+                    const scopeUserInfo = res?.authSetting?.['scope.userInfo'];
+                    if (scopeUserInfo === true) {
+                        resolve('accept');
+                        return;
+                    }
+
+                    if (scopeUserInfo === false) {
+                        resolve('reject');
+                        return;
+                    }
+
+                    resolve('unset');
+                },
+                fail: (err) => {
+                    console.warn('检查用户信息授权失败:', err);
+                    resolve('unset');
+                }
+            });
+        });
+    }
+
+    /**
+     * 获取用户信息（昵称和头像）
+     * 每次都从微信获取最新数据，不使用缓存；拒绝授权时回退为“豆友+openid后四位”
+     * @returns Promise<{ nickname: string; avatarUrl: string }>
+     */
+    public async getUserInfo(): Promise<{ nickname: string; avatarUrl: string }> {
+        const localUserInfo = this.ensureUserProfileLoadedFromCache();
+        if (this.hasRealUserProfile()) {
+            return localUserInfo?.getDisplayProfile() ?? { nickname: '', avatarUrl: '' };
+        }
+
+        const resolveFallbackProfile = async (): Promise<{ nickname: string; avatarUrl: string }> => {
+            if (this.hasRealUserProfile()) {
+                return this.ensureUserProfileLoadedFromCache()?.getDisplayProfile() ?? { nickname: '', avatarUrl: '' };
+            }
+
+            const openid = await this.getOpenId();
+            const fallbackNickname = openid ? `豆友${openid.slice(-4)}` : '豆友';
+            localUserInfo?.setProfile(fallbackNickname, '');
+            this.clearCachedUserProfile();
+            return localUserInfo?.getDisplayProfile() ?? { nickname: fallbackNickname, avatarUrl: '' };
+        };
+
+        if (typeof (wx) === 'undefined') {
+            return await resolveFallbackProfile();
+        }
+
+        return new Promise((resolve) => {
+            // 直接调用 wx.getUserInfo 获取最新数据
+            wx.getUserInfo({
+                withCredentials: false,
+                lang: 'zh_CN',
+                success: async (res) => {
+                    const userInfo = res.userInfo;
+                    if (userInfo) {
+                        const openid = await this.getOpenId();
+                        const fallbackNickname = openid ? `豆友${openid.slice(-4)}` : '豆友';
+                        localUserInfo?.setProfile(userInfo.nickName?.trim() || fallbackNickname, userInfo.avatarUrl || '');
+                        this.setAuthorizedAvatarUrl(userInfo.avatarUrl || '');
+                        this.saveCachedUserProfile();
+                        console.log('获取用户信息成功:', this._nickname, this._avatarUrl);
+                        resolve(localUserInfo?.getDisplayProfile() ?? { nickname: fallbackNickname, avatarUrl: userInfo.avatarUrl || '' });
+                        return;
+                    }
+
+                    resolve(await resolveFallbackProfile());
+                },
+                fail: async (err) => {
+                    console.warn('获取用户信息失败:', err);
+                    resolve(await resolveFallbackProfile());
+                }
+            });
+        });
+    }
+}
