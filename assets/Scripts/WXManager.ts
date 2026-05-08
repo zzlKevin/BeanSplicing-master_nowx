@@ -415,13 +415,15 @@ export class WXManager extends Component {
      * @param title 分享标题，默认使用小程序名称
      */
     public onShareAppMessage(title?: string): void {
-        // [LocalMode] Using sys.localStorage instead of wx storage
-
-        console.log('[LocalMode] onShareAppMessage skipped') => ({
-            title: title ?? '',
-            imageUrlId: this._imageUrlId,
-            imageUrl: this._imageUrl,
-        }));
+        if (isWechat()) {
+            wx.onShareAppMessage(() => ({
+                title: title ?? '',
+                imageUrlId: this._imageUrlId,
+                imageUrl: this._imageUrl,
+            }));
+        } else {
+            console.log('[LocalMode] onShareAppMessage skipped');
+        }
     }
 
     /**
@@ -619,7 +621,7 @@ export class WXManager extends Component {
                 resolve(null);
             }
         });
-
+    }
     public getBookProgressRewardClaimedProgressesByDifficulty(difficulty: DifficultyMode): Promise<number[] | null> {
         // [LocalMode] Using sys.localStorage instead of wx storage
         return this.getBookProgressRewardStatesByDifficulty(difficulty).then((states) => {
@@ -1080,26 +1082,14 @@ export class WXManager extends Component {
         );
     }
 
+    
+    // 2. 在 getRoadPassRewardClaimState 中正常调用
     public async getRoadPassRewardClaimState(): Promise<RoadPassRewardClaimState | null> {
-        // [LocalMode] Using sys.localStorage instead of wx storage
-
         const [freeClaimedLevels, premiumClaimedLevels] = await Promise.all([
-    private getClaimedLevelsFromStorage(key: string): Promise<number[] | null> {
-        // [LocalMode] Using sys.localStorage instead of wx storage
-        return new Promise((resolve) => {
-            const val = sys.localStorage.getItem(key);
-            if (val !== null && val !== undefined && val !== '') {
-                try {
-                    const normalizedLevels = this.normalizeClaimedLevels(JSON.parse(val));
-                    resolve(normalizedLevels.length > 0 ? normalizedLevels : null);
-                } catch (e) {
-                    resolve(null);
-                }
-            } else {
-                resolve(null);
-            }
-        });
-    }
+            this.getClaimedLevelsFromStorage(WXManager.ROAD_PASS_FREE_CLAIMED_LEVELS_STORAGE_KEY),
+            this.getClaimedLevelsFromStorage(WXManager.ROAD_PASS_PREMIUM_CLAIMED_LEVELS_STORAGE_KEY)
+        ]);
+
         if (!freeClaimedLevels && !premiumClaimedLevels) {
             return null;
         }
@@ -1776,13 +1766,17 @@ export class WXManager extends Component {
                 return;
             }
 
-            Promise.resolve({ code: 'local_mode' });
+            // 微信环境：调用 wx.login
+            wx.login({
+                success: (res: any) => {
+                    if (res.code) {
+                        resolve({ code: res.code, errMsg: '' });
                     } else {
                         console.warn('wx.login 成功但未返回 code:', res);
                         resolve({ code: null, errMsg: 'no code returned' });
                     }
                 },
-                fail: (err) => {
+                fail: (err: any) => {
                     console.error('wx.login 失败:', err);
                     resolve({ code: null, errMsg: err?.errMsg || 'login failed' });
                 }
@@ -1938,18 +1932,18 @@ export class WXManager extends Component {
                 return;
             }
 
-            Promise.resolve({ authSetting: { 'scope.userInfo': true } });
+            // 微信环境：检查用户信息授权状态
+            wx.getSetting({
+                success: (res) => {
                     const scopeUserInfo = res?.authSetting?.['scope.userInfo'];
                     if (scopeUserInfo === true) {
                         resolve('accept');
                         return;
                     }
-
                     if (scopeUserInfo === false) {
                         resolve('reject');
                         return;
                     }
-
                     resolve('unset');
                 },
                 fail: (err) => {

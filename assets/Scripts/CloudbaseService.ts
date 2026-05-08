@@ -11,11 +11,15 @@ import type { QueryCondition, SortRule, PageParams } from './LocalStorageService
 declare const wx: any;
 
 // 微信云开发初始化（仅微信环境）
-if (typeof wx !== 'undefined' && wx.cloud) {
-    wx.cloud.init({
-        env: 'cloud1-2gltl8c72b1bc894',
-        traceUser: true
-    });
+function initCloud(): void {
+    if (typeof wx !== 'undefined' && wx?.cloud) {
+        wx.cloud.init({ env: 'cloud1-2gltl8c72b1bc894', traceUser: true });
+    }
+}
+
+// 在确认是微信环境时调用
+if (isWechat()) {
+    initCloud();
 }
 
 /**
