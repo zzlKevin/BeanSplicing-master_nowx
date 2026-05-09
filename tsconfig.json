@@ -6,6 +6,7 @@
   "compilerOptions": {
     "strict": false,
     "allowSyntheticDefaultImports": true,
-    "esModuleInterop": true
+    "esModuleInterop": true,
+    "lib": ["es2017", "dom"],  // 显式指定库
   }
 }

@@ -95,7 +95,7 @@ export class WXManager extends Component {
     private readonly VIDEO_AD_UNIT_ID: string = 'adunit-f7349bec4122701f';
     private readonly INTERSTITIAL_AD_UNIT_ID: string = 'adunit-613709c057d35ead';
     // 是否为调试模式（正式版但广告位为 test123 时启用）
-    private isDebugMode: boolean = false;
+    private isDebugMode: boolean = true//false;
 
     // 分享图片 ID（在微信公众平台「增长入口」→「小程序分享图」上传获取）
     private _imageUrlId: string = 'qGwwwryFRtmUgxcDjf2p3w==';
@@ -108,10 +108,10 @@ export class WXManager extends Component {
         this.showShareMenu();
         // imageUrlId、imageUrl：在微信公众平台「增长入口」→「小程序分享图」上传后获得的图片 ID 和图片 URL
         this.onShareAppMessage('快来和我一起拼豆！');
-        if (!this.isDebugMode) {
-            this.createRewardedVideoAd();
-            this.createInterstitialAd();
-        }
+        // if (!this.isDebugMode) {
+            // this.createRewardedVideoAd();
+            // this.createInterstitialAd();
+        // }
     }
 
     // ========== 激励视频广告 ==========
@@ -1818,6 +1818,19 @@ export class WXManager extends Component {
      * @returns Promise<string | null> openid
      */
     public async getOpenId(): Promise<string | null> {
+        // ===== 本地模式：生成/读取本地 openid =====
+        if (!isWechat()) {
+            let localOpenId = sys.localStorage.getItem('local_openid');
+            if (!localOpenId) {
+                // 生成一个伪 openid，例如：local_随机串
+                localOpenId = 'local_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
+                sys.localStorage.setItem('local_openid', localOpenId);
+                console.log('本地模式生成 openid:', localOpenId);
+            }
+            return localOpenId;
+        }
+
+        // ===== 微信环境：原有流程 =====
         // 先检查本地是否已有缓存
         const cachedOpenid = sys.localStorage.getItem('openid');
         if (cachedOpenid) {
