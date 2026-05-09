@@ -27,6 +27,9 @@ export class MenuManager extends Component {
     power_btn: Node = null;
 
     @property({ type: Node })
+    coin_btn: Node = null;
+
+    @property({ type: Node })
     pyq_btn: Node = null;
 
     @property({ type: Node })
@@ -179,6 +182,9 @@ export class MenuManager extends Component {
         }
         if (this.power_btn) {
             this.power_btn.on(Node.EventType.TOUCH_END, this.onPowerBtnClick, this);
+        }
+        if (this.coin_btn) {
+            this.coin_btn.on(Node.EventType.TOUCH_END, this.onCoinsBtnClick, this);
         }
         if (this.pyq_btn) {
             this.pyq_btn.on(Node.EventType.TOUCH_END, this.onPyqBtnClick, this);
@@ -414,11 +420,24 @@ export class MenuManager extends Component {
         if (!gameManager?.window || (gameManager.gameState != GameState.WAITING)) return;
         if (gameManager.isWindowBlocking()) return;
 
-        gameManager.vibrateShort();
-        gameManager.window.showWithMessage(' 看视频获得更多能量！');
+        // gameManager.vibrateShort();
+        // gameManager.window.showWithMessage(' 看视频获得更多能量！');
+        gameManager.power += 3;
         AudioManager.instance.playEffect('click_btn');
     }
+    /**
+     * 点击金币按钮，显示窗口
+     */
+    private onCoinsBtnClick(): void {
+            const gameManager = GameManager.getInstance();
+            if (!gameManager?.window || (gameManager.gameState != GameState.WAITING)) return;
+            if (gameManager.isWindowBlocking()) return;
+            gameManager.addCoins(100);
+            // gameManager.vibrateShort();
+            // gameManager.window.showWithMessage(' 看视频获得更多金币！');
+            AudioManager.instance.playEffect('click_btn');
 
+        }
     /**
      * 点击游戏圈按钮，打开游戏圈
      */

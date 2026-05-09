@@ -145,15 +145,15 @@ export class SkillController extends Component {
         switch (skillKey) {
             case 'palette':
                 if (userInfo.paletteSkillCount <= 0) return false;
-                userInfo.paletteSkillCount -= 1;
+                // userInfo.paletteSkillCount -= 1;
                 break;
             case 'time':
                 if (userInfo.timeSkillCount <= 0) return false;
-                userInfo.timeSkillCount -= 1;
+                // userInfo.timeSkillCount -= 1;
                 break;
             case 'fix':
                 if (userInfo.fixSkillCount <= 0) return false;
-                userInfo.fixSkillCount -= 1;
+                // userInfo.fixSkillCount -= 1;
                 break;
         }
 
@@ -352,8 +352,12 @@ export class SkillController extends Component {
             numberBgNode.active = hasSkill;
             const numberNode = numberBgNode.getChildByName('number');
             const numberLabel = numberNode?.getComponent(Label);
+            // if (numberLabel) {
+            //     numberLabel.string = `${safeCount}`;
+            // }
             if (numberLabel) {
-                numberLabel.string = `${safeCount}`;
+                // 显示无限符号，而不是具体数字
+                numberLabel.string = hasSkill ? '∞' : '';
             }
         }
     }
