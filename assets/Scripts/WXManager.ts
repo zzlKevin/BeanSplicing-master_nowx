@@ -139,16 +139,14 @@ export class WXManager extends Component {
     }
 
     private skillRewardedVideoClosed: ((success: boolean) => void) | null = null;
-
+    // 在 WXManager 类中添加激励视频广告位 ID（如果尚未存在）
+    private readonly REWARDED_VIDEO_AD_UNIT_ID: string = '你的激励视频广告位ID';
     /**
      * 创建激励视频广告
      */
     private createRewardedVideoAd(): void {
         // [LocalMode] Using sys.localStorage instead of wx storage
-        if (!isWechat()) {
-            // 非微信环境不创建广告
-            return;
-        }
+        if (!isWechat() || typeof wx === 'undefined') return; // 非微信环境直接返回
         if (typeof wx.createRewardedVideoAd !== 'function') return;
         try {
             this.rewardedVideoAd = wx.createRewardedVideoAd({ adUnitId: this.REWARDED_VIDEO_AD_UNIT_ID });
@@ -527,14 +525,12 @@ export class WXManager extends Component {
         // [LocalMode] Using sys.localStorage instead of wx storage
         
         return new Promise((resolve) => {
-            new Promise((resolve) => {
             const val = sys.localStorage.getItem('level');
             if (val !== null && val !== undefined && val !== '') {
                 try { resolve(JSON.parse(val)); } catch { resolve(val); }
             } else {
                 resolve(null);
             }
-        });
         });
     }
 
@@ -576,14 +572,12 @@ export class WXManager extends Component {
     public getStorageLevelByDifficulty(difficulty: DifficultyMode): Promise<number | null> {
         // [LocalMode] Using sys.localStorage instead of wx storage
         return new Promise((resolve) => {
-            new Promise((resolve) => {
             const val = sys.localStorage.getItem(`level_${difficulty}`);
             if (val !== null && val !== undefined && val !== '') {
                 try { resolve(JSON.parse(val)); } catch { resolve(val); }
             } else {
                 resolve(null);
             }
-        });
         });
     }
 
@@ -700,14 +694,12 @@ export class WXManager extends Component {
         // [LocalMode] Using sys.localStorage instead of wx storage
 
         return new Promise((resolve) => {
-            new Promise((resolve) => {
             const val = sys.localStorage.getItem('shake');
             if (val !== null && val !== undefined && val !== '') {
                 try { resolve(JSON.parse(val)); } catch { resolve(val); }
             } else {
                 resolve(null);
             }
-        });
         });
     }
 
@@ -726,20 +718,13 @@ export class WXManager extends Component {
      * @returns -1:左手  1:右手  null:未设置
      */
     public getHandSetting(): Promise<number | null> {
-        if (!isWechat()) {
-            console.warn('不在微信小游戏环境中');
-            return Promise.resolve(null);
-        }
-
         return new Promise((resolve) => {
-            new Promise((resolve) => {
             const val = sys.localStorage.getItem('hand_setting');
             if (val !== null && val !== undefined && val !== '') {
                 try { resolve(JSON.parse(val)); } catch { resolve(val); }
             } else {
                 resolve(null);
             }
-        });
         });
     }
 
@@ -762,14 +747,12 @@ export class WXManager extends Component {
     public getMusic(): Promise<number | null> {
         // [LocalMode] Using sys.localStorage instead of wx storage
         return new Promise((resolve) => {
-            new Promise((resolve) => {
             const val = sys.localStorage.getItem('music');
             if (val !== null && val !== undefined && val !== '') {
                 try { resolve(JSON.parse(val)); } catch { resolve(val); }
             } else {
                 resolve(null);
             }
-        });
         });
     }
 
@@ -787,14 +770,12 @@ export class WXManager extends Component {
     public getAudio(): Promise<number | null> {
         // [LocalMode] Using sys.localStorage instead of wx storage
         return new Promise((resolve) => {
-            new Promise((resolve) => {
             const val = sys.localStorage.getItem('audio');
             if (val !== null && val !== undefined && val !== '') {
                 try { resolve(JSON.parse(val)); } catch { resolve(val); }
             } else {
                 resolve(null);
             }
-        });
         });
     }
 
@@ -975,14 +956,12 @@ export class WXManager extends Component {
     public getPower(): Promise<number | null> {
         // [LocalMode] Using sys.localStorage instead of wx storage
         return new Promise((resolve) => {
-            new Promise((resolve) => {
             const val = sys.localStorage.getItem('power');
             if (val !== null && val !== undefined && val !== '') {
                 try { resolve(JSON.parse(val)); } catch { resolve(val); }
             } else {
                 resolve(null);
             }
-        });
         });
     }
 
@@ -1000,14 +979,12 @@ export class WXManager extends Component {
     public getCoins(): Promise<number | null> {
         // [LocalMode] Using sys.localStorage instead of wx storage
         return new Promise((resolve) => {
-            new Promise((resolve) => {
             const val = sys.localStorage.getItem('coins');
             if (val !== null && val !== undefined && val !== '') {
                 try { resolve(JSON.parse(val)); } catch { resolve(val); }
             } else {
                 resolve(null);
             }
-        });
         });
     }
 
@@ -1025,14 +1002,12 @@ export class WXManager extends Component {
     public getExperience(): Promise<number | null> {
         // [LocalMode] Using sys.localStorage instead of wx storage
         return new Promise((resolve) => {
-            new Promise((resolve) => {
             const val = sys.localStorage.getItem('experience');
             if (val !== null && val !== undefined && val !== '') {
                 try { resolve(JSON.parse(val)); } catch { resolve(val); }
             } else {
                 resolve(null);
             }
-        });
         });
     }
 
@@ -1044,14 +1019,12 @@ export class WXManager extends Component {
     public getFixSkillCount(): Promise<number | null> {
         // [LocalMode] Using sys.localStorage instead of wx storage
         return new Promise((resolve) => {
-            new Promise((resolve) => {
             const val = sys.localStorage.getItem('fix_skill_count');
             if (val !== null && val !== undefined && val !== '') {
                 try { resolve(JSON.parse(val)); } catch { resolve(val); }
             } else {
                 resolve(null);
             }
-        });
         });
     }
 
@@ -1063,14 +1036,12 @@ export class WXManager extends Component {
     public getTimeSkillCount(): Promise<number | null> {
         // [LocalMode] Using sys.localStorage instead of wx storage
         return new Promise((resolve) => {
-            new Promise((resolve) => {
             const val = sys.localStorage.getItem('time_skill_count');
             if (val !== null && val !== undefined && val !== '') {
                 try { resolve(JSON.parse(val)); } catch { resolve(val); }
             } else {
                 resolve(null);
             }
-        });
         });
     }
 
@@ -1125,14 +1096,12 @@ export class WXManager extends Component {
     public getRoadPassPremiumUnlocked(): Promise<boolean | null> {
         // [LocalMode] Using sys.localStorage instead of wx storage
         return new Promise((resolve) => {
-            new Promise((resolve) => {
             const val = sys.localStorage.getItem(WXManager.ROAD_PASS_PREMIUM_UNLOCKED_STORAGE_KEY);
             if (val !== null && val !== undefined && val !== '') {
                 try { resolve(JSON.parse(val)); } catch { resolve(val); }
             } else {
                 resolve(null);
             }
-        });
         });
     }
 
@@ -1146,14 +1115,12 @@ export class WXManager extends Component {
     public getRoadPassVideoWatchCount(): Promise<number | null> {
         // [LocalMode] Using sys.localStorage instead of wx storage
         return new Promise((resolve) => {
-            new Promise((resolve) => {
             const val = sys.localStorage.getItem(WXManager.ROAD_PASS_VIDEO_WATCH_COUNT_STORAGE_KEY);
             if (val !== null && val !== undefined && val !== '') {
                 try { resolve(JSON.parse(val)); } catch { resolve(val); }
             } else {
                 resolve(null);
             }
-        });
         });
     }
 
@@ -1190,14 +1157,12 @@ export class WXManager extends Component {
     public getAuthorizedAvatarUrl(): Promise<string | null> {
         // [LocalMode] Using sys.localStorage instead of wx storage
         return new Promise((resolve) => {
-            new Promise((resolve) => {
             const val = sys.localStorage.getItem(WXManager.USER_AUTHORIZED_AVATAR_URL_STORAGE_KEY);
             if (val !== null && val !== undefined && val !== '') {
                 try { resolve(JSON.parse(val)); } catch { resolve(val); }
             } else {
                 resolve(null);
             }
-        });
         });
     }
 
@@ -1216,14 +1181,12 @@ export class WXManager extends Component {
     public getCurrentAvatarSource(): Promise<string | null> {
         // [LocalMode] Using sys.localStorage instead of wx storage
         return new Promise((resolve) => {
-            new Promise((resolve) => {
             const val = sys.localStorage.getItem(WXManager.USER_CURRENT_AVATAR_SOURCE_STORAGE_KEY);
             if (val !== null && val !== undefined && val !== '') {
                 try { resolve(JSON.parse(val)); } catch { resolve(val); }
             } else {
                 resolve(null);
             }
-        });
         });
     }
 
@@ -1235,14 +1198,12 @@ export class WXManager extends Component {
     public getAvatarFrameId(): Promise<number | null> {
         // [LocalMode] Using sys.localStorage instead of wx storage
         return new Promise((resolve) => {
-            new Promise((resolve) => {
             const val = sys.localStorage.getItem(WXManager.USER_AVATAR_FRAME_ID_STORAGE_KEY);
             if (val !== null && val !== undefined && val !== '') {
                 try { resolve(JSON.parse(val)); } catch { resolve(val); }
             } else {
                 resolve(null);
             }
-        });
         });
     }
 
@@ -1254,14 +1215,12 @@ export class WXManager extends Component {
     public getTweezerId(): Promise<number | null> {
         // [LocalMode] Using sys.localStorage instead of wx storage
         return new Promise((resolve) => {
-            new Promise((resolve) => {
             const val = sys.localStorage.getItem(WXManager.USER_TWEEZER_ID_STORAGE_KEY);
             if (val !== null && val !== undefined && val !== '') {
                 try { resolve(JSON.parse(val)); } catch { resolve(val); }
             } else {
                 resolve(null);
             }
-        });
         });
     }
 
@@ -1273,14 +1232,12 @@ export class WXManager extends Component {
     public getIronId(): Promise<number | null> {
         // [LocalMode] Using sys.localStorage instead of wx storage
         return new Promise((resolve) => {
-            new Promise((resolve) => {
             const val = sys.localStorage.getItem(WXManager.USER_IRON_ID_STORAGE_KEY);
             if (val !== null && val !== undefined && val !== '') {
                 try { resolve(JSON.parse(val)); } catch { resolve(val); }
             } else {
                 resolve(null);
             }
-        });
         });
     }
 
@@ -1332,14 +1289,12 @@ export class WXManager extends Component {
     public getPaletteSkillCount(): Promise<number | null> {
         // [LocalMode] Using sys.localStorage instead of wx storage
         return new Promise((resolve) => {
-            new Promise((resolve) => {
             const val = sys.localStorage.getItem('palette_skill_count');
             if (val !== null && val !== undefined && val !== '') {
                 try { resolve(JSON.parse(val)); } catch { resolve(val); }
             } else {
                 resolve(null);
             }
-        });
         });
     }
 
@@ -1458,14 +1413,12 @@ export class WXManager extends Component {
     public getShopData(): Promise<ShopRuntimeData | null> {
         // [LocalMode] Using sys.localStorage instead of wx storage
         return new Promise((resolve) => {
-            new Promise((resolve) => {
             const val = sys.localStorage.getItem('shop_data');
             if (val !== null && val !== undefined && val !== '') {
                 try { resolve(JSON.parse(val)); } catch { resolve(val); }
             } else {
                 resolve(null);
             }
-        });
         });
     }
 
@@ -1477,14 +1430,12 @@ export class WXManager extends Component {
     public getShopRefreshTime(): Promise<number | null> {
         // [LocalMode] Using sys.localStorage instead of wx storage
         return new Promise((resolve) => {
-            new Promise((resolve) => {
             const val = sys.localStorage.getItem('shop_refresh_time');
             if (val !== null && val !== undefined && val !== '') {
                 try { resolve(JSON.parse(val)); } catch { resolve(val); }
             } else {
                 resolve(null);
             }
-        });
         });
     }
 
@@ -1502,14 +1453,12 @@ export class WXManager extends Component {
     public getPowerNextRegenTime(): Promise<number | null> {
         // [LocalMode] Using sys.localStorage instead of wx storage
         return new Promise((resolve) => {
-            new Promise((resolve) => {
             const val = sys.localStorage.getItem('power_next_regen');
             if (val !== null && val !== undefined && val !== '') {
                 try { resolve(JSON.parse(val)); } catch { resolve(val); }
             } else {
                 resolve(null);
             }
-        });
         });
     }
 
