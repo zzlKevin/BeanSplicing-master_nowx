@@ -145,9 +145,13 @@ export class WXManager extends Component {
      */
     private createRewardedVideoAd(): void {
         // [LocalMode] Using sys.localStorage instead of wx storage
-
+        if (!isWechat()) {
+            // 非微信环境不创建广告
+            return;
+        }
+        if (typeof wx.createRewardedVideoAd !== 'function') return;
         try {
-            this.rewardedVideoAd = null;
+            this.rewardedVideoAd = wx.createRewardedVideoAd({ adUnitId: this.REWARDED_VIDEO_AD_UNIT_ID });
 
             this.rewardedVideoAd.onLoad(() => {
                 console.log('激励视频广告加载完成');
@@ -226,16 +230,19 @@ export class WXManager extends Component {
      * 打开游戏圈
      */
     public openGameClub(): void {
-        // [LocalMode] Using sys.localStorage instead of wx storage
+        // 环境检查
+        if (typeof wx === 'undefined' || typeof wx.createPageManager !== 'function') {
+            console.warn('当前环境不支持 wx.createPageManager');
+            return;
+        }
         if (!this.gameClubOpenLink) {
             console.warn('游戏圈 openLink 未设置，请先调用 setGameClubOpenLink 设置');
             return;
         }
-
-        const pageManager = null;
-        pageManager.load({
-            openlink: this.gameClubOpenLink
-        }).then((res: any) => {
+        // 恢复原有功能
+        const pageManager = wx.createPageManager();
+        pageManager.load({ openlink: this.gameClubOpenLink })
+        .then((res: any) => {
             console.log('游戏圈加载成功:', res);
             pageManager.show();
         }).catch((err: any) => {
@@ -250,20 +257,20 @@ export class WXManager extends Component {
      * 创建插屏广告
      */
     private createInterstitialAd(): void {
-        // [LocalMode] Using sys.localStorage instead of wx storage
+        // 补全环境检查：如果不在微信环境，直接返回
+        if (!isWechat() || typeof wx === 'undefined') {
+            return;
+        }
         if (typeof wx.createInterstitialAd !== 'function') return;
-
         try {
-            this.interstitialAd = null;
-
+            // 恢复原有的广告创建逻辑
+            this.interstitialAd = wx.createInterstitialAd({ adUnitId: this.INTERSTITIAL_AD_UNIT_ID });
             this.interstitialAd.onLoad(() => {
                 console.log('插屏广告加载完成');
             });
-
             this.interstitialAd.onError((err: any) => {
                 console.warn('插屏广告错误:', err);
             });
-
             this.interstitialAd.onClose(() => {
                 console.log('插屏广告已关闭');
             });

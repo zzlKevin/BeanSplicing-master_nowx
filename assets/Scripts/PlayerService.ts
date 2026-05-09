@@ -239,9 +239,7 @@ export class PlayerService extends Component {
         }
 
         const data: LevelBest = {
-            _id: docId,           // 必须的
-            // _id 由 upsert 逻辑处理（在 whereFields 匹配后更新或添加新记录时包含）
-            // 这里不需要重复放 _id，除非你希望 data 中也包含 _id（可以，但 upsert 可能会合并）
+            _id: docId,       
             userId: openid,
             difficulty: diffCode,
             levelNo: levelNo,

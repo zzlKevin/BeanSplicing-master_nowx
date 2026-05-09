@@ -66,10 +66,11 @@ export class CloudbaseDBService {
 
     private convertOldConditions(conditions?: QueryConditionOld): QueryCondition[] | undefined {
         if (!conditions?.where) return undefined;
-        return Object.entries(conditions.where).map(([field, value]) => ({
+        // 使用 Object.keys 代替 Object.entries
+        return Object.keys(conditions.where).map((field) => ({
             field,
             op: '==' as const,
-            value
+            value: conditions.where![field]
         }));
     }
 
