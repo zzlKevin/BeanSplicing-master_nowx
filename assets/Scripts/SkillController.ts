@@ -132,6 +132,8 @@ export class SkillController extends Component {
             .to(0.3, { opacity: 255 })
             .call(() => {
                 if (onFinish) onFinish();
+                 // ✅ 强制刷新技能UI，确保按钮恢复可点击
+                this.refreshSkillInventoryDisplay();
             })
             .start();
     }
@@ -163,10 +165,10 @@ export class SkillController extends Component {
 
     private activateSkillWithCooldown(node: Node, activate: () => void, setCooldown: (value: boolean) => void): void {
         activate();
-        setCooldown(true);
-        this.startCooldown(node, this.COOLDOWN_TIME, () => {
-            setCooldown(false);
-        });
+        // setCooldown(true);
+        // this.startCooldown(node, this.COOLDOWN_TIME, () => {
+        //     setCooldown(false);
+        // });
     }
 
     // ==================== 技能点击事件 ====================
@@ -177,7 +179,7 @@ export class SkillController extends Component {
      */
     private onPaletteSkillClick(): void {
         if (!this.isGameActive()) return;
-        if (this.paletteCooldown) return;
+        // if (this.paletteCooldown) return;
         if (GameManager.getInstance()?.isWindowBlocking()) return;
 
         const levelMode = this.getLevelMode();
