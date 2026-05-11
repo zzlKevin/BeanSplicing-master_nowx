@@ -592,10 +592,28 @@ export class WXManager extends Component {
     }
 
     public addBookUnlockedIdsByDifficulty(difficulty: DifficultyMode, ids: number[]): void {
-        // [LocalMode] Using sys.localStorage instead of wx storage
         const key = this.getBookUnlockedIdsStorageKey(difficulty);
-        const currentIds = this.normalizeOwnedIds(sys.localStorage.getItem(key));
-        sys.localStorage.setItem(key, String(this.normalizeOwnedIds([...currentIds, ...ids])));
+        // 1. 读取并解析已有的数组
+        let currentIds: number[] = [];
+        try {
+            const raw = sys.localStorage.getItem(key);
+        if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+                currentIds = parsed;
+            }
+        }
+        } catch (e) {
+            // 如果解析失败（例如旧数据是单个数字），就把它转成数组
+            const num = Number(sys.localStorage.getItem(key));
+                if (!isNaN(num)) {
+                currentIds = [num];
+            }
+        }
+        // 2. 合并新旧ID并去重
+        const merged = Array.from(new Set([...currentIds, ...ids]));
+        // 3. 以 JSON 字符串形式存回本地
+        sys.localStorage.setItem(key, JSON.stringify(merged));
     }
 
     public setBookProgressRewardStatesByDifficulty(
