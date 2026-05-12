@@ -583,7 +583,7 @@ export class WXManager extends Component {
 
     public setBookUnlockedIdsByDifficulty(difficulty: DifficultyMode, ids: number[]): void {
         // [LocalMode] Using sys.localStorage instead of wx storage
-        sys.localStorage.setItem(this.getBookUnlockedIdsStorageKey(difficulty), String(this.normalizeOwnedIds(ids)));
+        sys.localStorage.setItem(this.getBookUnlockedIdsStorageKey(difficulty), JSON.stringify(this.normalizeOwnedIds(ids)));
     }
 
     public getBookUnlockedIdsByDifficulty(difficulty: DifficultyMode): Promise<number[] | null> {
@@ -621,7 +621,7 @@ export class WXManager extends Component {
         states: { progress: number; claimed: boolean }[]
     ): void {
         // [LocalMode] Using sys.localStorage instead of wx storage
-        sys.localStorage.setItem(this.getBookProgressRewardStorageKey(difficulty), String(this.normalizeBookProgressRewardStates(states)));
+        sys.localStorage.setItem(this.getBookProgressRewardStorageKey(difficulty), JSON.stringify(this.normalizeBookProgressRewardStates(states)));
     }
 
     public getBookProgressRewardStatesByDifficulty(
@@ -661,7 +661,15 @@ export class WXManager extends Component {
     ): void {
         // [LocalMode] Using sys.localStorage instead of wx storage
         const key = this.getBookProgressRewardStorageKey(difficulty);
-        const states = this.normalizeBookProgressRewardStates(sys.localStorage.getItem(key));
+        let rawData: any = sys.localStorage.getItem(key);
+        if (rawData && typeof rawData === 'string') {
+            try {
+                rawData = JSON.parse(rawData);
+            } catch (e) {
+                rawData = [];
+            }
+        }
+        const states = this.normalizeBookProgressRewardStates(rawData);
         const safeProgress = Math.max(0, Math.floor(Number(progress) || 0));
         if (safeProgress <= 0) {
             return;
@@ -673,7 +681,7 @@ export class WXManager extends Component {
         } else {
             states.push({ progress: safeProgress, claimed });
         }
-        sys.localStorage.setItem(key, String(this.normalizeBookProgressRewardStates(states)));
+        sys.localStorage.setItem(key, JSON.stringify(this.normalizeBookProgressRewardStates(states)));
     }
 
     /**
@@ -1071,10 +1079,10 @@ export class WXManager extends Component {
     public setRoadPassRewardClaimState(state: RoadPassRewardClaimState): void {
         // [LocalMode] Using sys.localStorage instead of wx storage
         sys.localStorage.setItem(
-            WXManager.ROAD_PASS_FREE_CLAIMED_LEVELS_STORAGE_KEY, String(this.normalizeClaimedLevels(state?.freeClaimedLevels))
+            WXManager.ROAD_PASS_FREE_CLAIMED_LEVELS_STORAGE_KEY, JSON.stringify(this.normalizeClaimedLevels(state?.freeClaimedLevels))
         );
         sys.localStorage.setItem(
-            WXManager.ROAD_PASS_PREMIUM_CLAIMED_LEVELS_STORAGE_KEY, String(this.normalizeClaimedLevels(state?.premiumClaimedLevels))
+            WXManager.ROAD_PASS_PREMIUM_CLAIMED_LEVELS_STORAGE_KEY, JSON.stringify(this.normalizeClaimedLevels(state?.premiumClaimedLevels))
         );
     }
 
@@ -1173,11 +1181,15 @@ export class WXManager extends Component {
     }
 
     public getAuthorizedAvatarUrl(): Promise<string | null> {
-        // [LocalMode] Using sys.localStorage instead of wx storage
         return new Promise((resolve) => {
             const val = sys.localStorage.getItem(WXManager.USER_AUTHORIZED_AVATAR_URL_STORAGE_KEY);
             if (val !== null && val !== undefined && val !== '') {
-                try { resolve(JSON.parse(val)); } catch { resolve(val); }
+                try {
+                    const parsed = JSON.parse(val);
+                    resolve(typeof parsed === 'string' ? parsed : String(parsed));
+                } catch {
+                    resolve(val);
+                }
             } else {
                 resolve(null);
             }
@@ -1197,16 +1209,21 @@ export class WXManager extends Component {
     }
 
     public getCurrentAvatarSource(): Promise<string | null> {
-        // [LocalMode] Using sys.localStorage instead of wx storage
         return new Promise((resolve) => {
             const val = sys.localStorage.getItem(WXManager.USER_CURRENT_AVATAR_SOURCE_STORAGE_KEY);
             if (val !== null && val !== undefined && val !== '') {
-                try { resolve(JSON.parse(val)); } catch { resolve(val); }
+                try {
+                    const parsed = JSON.parse(val);
+                    // 确保返回字符串
+                    resolve(typeof parsed === 'string' ? parsed : String(parsed));
+                } catch {
+                    resolve(val);
+                }
             } else {
                 resolve(null);
             }
         });
-    }
+}
 
     public setAvatarFrameId(id: number): void {
         // [LocalMode] Using sys.localStorage instead of wx storage
@@ -1261,7 +1278,7 @@ export class WXManager extends Component {
 
     public setOwnedAvatarIds(ids: number[]): void {
         // [LocalMode] Using sys.localStorage instead of wx storage
-        sys.localStorage.setItem(WXManager.USER_OWNED_AVATAR_IDS_STORAGE_KEY, String(this.normalizeOwnedIds(ids)));
+        sys.localStorage.setItem(WXManager.USER_OWNED_AVATAR_IDS_STORAGE_KEY, JSON.stringify(this.normalizeOwnedIds(ids)));
     }
 
     public getOwnedAvatarIds(): Promise<number[] | null> {
@@ -1270,7 +1287,7 @@ export class WXManager extends Component {
 
     public setOwnedAvatarFrameIds(ids: number[]): void {
         // [LocalMode] Using sys.localStorage instead of wx storage
-        sys.localStorage.setItem(WXManager.USER_OWNED_AVATAR_FRAME_IDS_STORAGE_KEY, String(this.normalizeOwnedIds(ids)));
+        sys.localStorage.setItem(WXManager.USER_OWNED_AVATAR_FRAME_IDS_STORAGE_KEY, JSON.stringify(this.normalizeOwnedIds(ids)));
     }
 
     public getOwnedAvatarFrameIds(): Promise<number[] | null> {
@@ -1279,7 +1296,7 @@ export class WXManager extends Component {
 
     public setOwnedTweezerIds(ids: number[]): void {
         // [LocalMode] Using sys.localStorage instead of wx storage
-        sys.localStorage.setItem(WXManager.USER_OWNED_TWEEZER_IDS_STORAGE_KEY, String(this.normalizeOwnedIds(ids)));
+        sys.localStorage.setItem(WXManager.USER_OWNED_TWEEZER_IDS_STORAGE_KEY, JSON.stringify(this.normalizeOwnedIds(ids)));
     }
 
     public getOwnedTweezerIds(): Promise<number[] | null> {
@@ -1288,7 +1305,7 @@ export class WXManager extends Component {
 
     public setOwnedIronIds(ids: number[]): void {
         // [LocalMode] Using sys.localStorage instead of wx storage
-        sys.localStorage.setItem(WXManager.USER_OWNED_IRON_IDS_STORAGE_KEY, String(this.normalizeOwnedIds(ids)));
+        sys.localStorage.setItem(WXManager.USER_OWNED_IRON_IDS_STORAGE_KEY, JSON.stringify(this.normalizeOwnedIds(ids)));
     }
 
     public getOwnedIronIds(): Promise<number[] | null> {
@@ -1297,7 +1314,7 @@ export class WXManager extends Component {
 
     public setOwnedAchievementIconIds(ids: number[]): void {
         // [LocalMode] Using sys.localStorage instead of wx storage
-        sys.localStorage.setItem(WXManager.USER_OWNED_ACHIEVEMENT_ICON_IDS_STORAGE_KEY, String(this.normalizeOwnedIds(ids)));
+        sys.localStorage.setItem(WXManager.USER_OWNED_ACHIEVEMENT_ICON_IDS_STORAGE_KEY, JSON.stringify(this.normalizeOwnedIds(ids)));
     }
 
     public getOwnedAchievementIconIds(): Promise<number[] | null> {
@@ -1356,15 +1373,22 @@ export class WXManager extends Component {
         if (safeLevel <= 0) {
             return;
         }
-
-        const levels = new Set(this.normalizeClaimedLevels(sys.localStorage.getItem(key)));
+        let rawData: any = sys.localStorage.getItem(key);
+        if (rawData && typeof rawData === 'string') {
+            try {
+                rawData = JSON.parse(rawData);
+            } catch (e) {
+                rawData = [];
+            }
+        }
+        const levels = new Set(this.normalizeClaimedLevels(rawData));
         if (claimed) {
             levels.add(safeLevel);
         } else {
             levels.delete(safeLevel);
         }
 
-        sys.localStorage.setItem(key, String(this.normalizeClaimedLevels(Array.from(levels))));
+        sys.localStorage.setItem(key, JSON.stringify(this.normalizeClaimedLevels(Array.from(levels))));
     }
 
     private normalizeOwnedIds(ids: unknown): number[] {
@@ -1425,7 +1449,7 @@ export class WXManager extends Component {
 
     public setShopData(shopData: ShopRuntimeData): void {
         // [LocalMode] Using sys.localStorage instead of wx storage
-        sys.localStorage.setItem('shop_data', String(shopData));
+        sys.localStorage.setItem('shop_data', JSON.stringify(shopData));
     }
 
     public getShopData(): Promise<ShopRuntimeData | null> {
