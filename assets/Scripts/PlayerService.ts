@@ -2,11 +2,13 @@ import { _decorator, Component } from 'cc';
 import { GameManager, DifficultyMode } from './GameManager';
 import CloudbaseDBService, { callFunction } from './CloudbaseService';
 import { WXManager } from './WXManager';
+import { sys } from 'cc';
+import { isWechat } from './PlatformUtils';
 
 const { ccclass, property } = _decorator;
 
 // 微信小游戏全局对象类型声明
-declare const wx: any;
+// declare const wx: any; // [LocalMode] Removed - using sys.localStorage
 
 // 集合名称常量
 const COLLECTION_DIFFICULTY_SUMMARY = 'player_difficulty_summary';
@@ -129,6 +131,12 @@ export class PlayerService extends Component {
         order: 'asc' | 'desc',
         limit: number
     ): Promise<T[]> {
+        // 本地模式直接返回空数组，不尝试调用云函数
+        if (!isWechat()) {
+            console.log(`[PlayerService] query_documents skipped in local mode for ${collection}`);
+            return [];
+        }
+
         const safeLimit = Math.max(1, Math.floor(limit || 10));
         const res = await callFunction('query_documents', {
             collection,
@@ -224,25 +232,29 @@ export class PlayerService extends Component {
         // 先检查是否已有记录
         const existing = await CloudbaseDBService.getById<LevelBest>(COLLECTION_LEVEL_BEST, docId);
 
-        // 如果已有记录且时间更长，不保存
+        // 如果已有记录且时间更短，不保存
         if (existing && existing.bestClearTime <= clearTime) {
             console.log(`关卡 ${levelNo} 已有更佳记录: ${existing.bestClearTime}s，当前: ${clearTime}s，跳过`);
             return true;
         }
 
         const data: LevelBest = {
-            _id: docId,
+            _id: docId,       
             userId: openid,
             difficulty: diffCode,
             levelNo: levelNo,
             nickname: finalNickname,
             bestClearTime: clearTime
         };
-
         if (finalAvatarUrl !== undefined) data.avatarUrl = finalAvatarUrl;
 
-        // 使用 upsert：存在则更新，不存在则新增
-        return await CloudbaseDBService.upsert(COLLECTION_LEVEL_BEST, docId, data);
+        // 使用 upsert：根据 _id 匹配，存在则更新，不存在则新增
+        const resultId = await CloudbaseDBService.upsert(
+            COLLECTION_LEVEL_BEST,
+            { _id: docId },   // whereFields: 根据 _id 查找
+            data              // 要存储的数据
+        );
+        return resultId !== null;
     }
 
     /**
@@ -315,7 +327,12 @@ export class PlayerService extends Component {
         if (finalAvatarUrl !== undefined) data.avatarUrl = finalAvatarUrl;
 
         // 使用 upsert：存在则更新，不存在则新增
-        return await CloudbaseDBService.upsert(COLLECTION_DIFFICULTY_SUMMARY, docId, data);
+        const resultId = await CloudbaseDBService.upsert(
+            COLLECTION_DIFFICULTY_SUMMARY,
+            { _id: docId },   // whereFields
+            data              // 要写入的数据
+        );
+        return resultId !== null;
     }
 
     /**
@@ -395,10 +412,8 @@ export class PlayerService extends Component {
      */
     public getCachedLevel(difficulty: DifficultyMode): number {
         const key = `level_${difficulty}`;
-        if (typeof (wx) !== 'undefined') {
-            return wx.getStorageSync(key) || 1;
-        }
-        return 1;
+        const val = sys.localStorage.getItem(key);
+        return val ? parseInt(val, 10) || 1 : 1;
     }
 
     /**
@@ -408,9 +423,7 @@ export class PlayerService extends Component {
      */
     public setCachedLevel(difficulty: DifficultyMode, level: number): void {
         const key = `level_${difficulty}`;
-        if (typeof (wx) !== 'undefined') {
-            wx.setStorageSync(key, level);
-        }
+        sys.localStorage.setItem(key, String(level));
     }
 
     /**
@@ -496,7 +509,12 @@ export class PlayerService extends Component {
             lastLoginAt: now
         };
 
-        return await CloudbaseDBService.upsert(COLLECTION_PLAYERS, openid, data);
+        const resultId = await CloudbaseDBService.upsert(
+            COLLECTION_PLAYERS,
+            { _id: openid },   // 查询条件
+            data               // 数据
+        );
+        return resultId !== null;   
     }
 
     /**

@@ -15,6 +15,7 @@ import { ChartController } from './ChartController';
 import { ShopController } from './ShopController';
 import { UserInfo } from './UserInfo';
 import { RoadController } from './RoadController';
+import { isWechat } from './PlatformUtils';
 const { ccclass, property } = _decorator;
 
 /**
@@ -283,7 +284,7 @@ export class GameManager extends Component {
     // 每次恢复能量
     private readonly POWER_REGEN_AMOUNT: number = 1;
     // 体力上限
-    private readonly POWER_MAX: number = 10;
+    private readonly POWER_MAX: number = 999;
     // 下次恢复时间（时间戳，毫秒）
     private _powerNextRegenTime: number = 0;
 

@@ -132,6 +132,8 @@ export class SkillController extends Component {
             .to(0.3, { opacity: 255 })
             .call(() => {
                 if (onFinish) onFinish();
+                 // ✅ 强制刷新技能UI，确保按钮恢复可点击
+                this.refreshSkillInventoryDisplay();
             })
             .start();
     }
@@ -145,15 +147,15 @@ export class SkillController extends Component {
         switch (skillKey) {
             case 'palette':
                 if (userInfo.paletteSkillCount <= 0) return false;
-                userInfo.paletteSkillCount -= 1;
+                // userInfo.paletteSkillCount -= 1;
                 break;
             case 'time':
                 if (userInfo.timeSkillCount <= 0) return false;
-                userInfo.timeSkillCount -= 1;
+                // userInfo.timeSkillCount -= 1;
                 break;
             case 'fix':
                 if (userInfo.fixSkillCount <= 0) return false;
-                userInfo.fixSkillCount -= 1;
+                // userInfo.fixSkillCount -= 1;
                 break;
         }
 
@@ -163,10 +165,10 @@ export class SkillController extends Component {
 
     private activateSkillWithCooldown(node: Node, activate: () => void, setCooldown: (value: boolean) => void): void {
         activate();
-        setCooldown(true);
-        this.startCooldown(node, this.COOLDOWN_TIME, () => {
-            setCooldown(false);
-        });
+        // setCooldown(true);
+        // this.startCooldown(node, this.COOLDOWN_TIME, () => {
+        //     setCooldown(false);
+        // });
     }
 
     // ==================== 技能点击事件 ====================
@@ -177,7 +179,7 @@ export class SkillController extends Component {
      */
     private onPaletteSkillClick(): void {
         if (!this.isGameActive()) return;
-        if (this.paletteCooldown) return;
+        // if (this.paletteCooldown) return;
         if (GameManager.getInstance()?.isWindowBlocking()) return;
 
         const levelMode = this.getLevelMode();
@@ -352,8 +354,12 @@ export class SkillController extends Component {
             numberBgNode.active = hasSkill;
             const numberNode = numberBgNode.getChildByName('number');
             const numberLabel = numberNode?.getComponent(Label);
+            // if (numberLabel) {
+            //     numberLabel.string = `${safeCount}`;
+            // }
             if (numberLabel) {
-                numberLabel.string = `${safeCount}`;
+                // 显示无限符号，而不是具体数字
+                numberLabel.string = hasSkill ? '∞' : '';
             }
         }
     }

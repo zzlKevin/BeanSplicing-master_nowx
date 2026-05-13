@@ -1,51 +1,41 @@
-// 微信小游戏全局对象类型声明
+/**
+ * CloudbaseService - 平台感知的数据库服务
+ * 微信小游戏环境 → 使用 wx.cloud.database()
+ * 原生/其他环境 → 使用 LocalStorageService (sys.localStorage)
+ */
+
+import { isWechat } from './PlatformUtils';
+import { LocalStorageDBService, collection as localCollection, callFunction as localCallFunction } from './LocalStorageService';
+import type { QueryCondition, SortRule, PageParams } from './LocalStorageService';
+
 declare const wx: any;
 
-// 初始化云开发环境
-// if (typeof wx !== 'undefined' && wx.cloud) {
-//     wx.cloud.init({
-//         env: 'cloud1-2gltl8c72b1bc894',
-//         traceUser: true
-//     });
-// }
-
-// 添加一个初始化标志和函数
-let cloudInitialized = false;
-
-function initCloud() {
-    if (cloudInitialized) return;
-    // 安全检测：先判断 wx 是否存在
-    if (typeof wx !== 'undefined' && wx && wx.cloud) {
-        wx.cloud.init({
-            env: 'cloud1-2gltl8c72b1bc894',
-            traceUser: true
-        });
-        cloudInitialized = true;
-        console.log('云开发初始化成功');
-    } else {
-        console.warn('非微信小游戏环境，云开发不可用');
+// 微信云开发初始化（仅微信环境）
+function initCloud(): void {
+    if (typeof wx !== 'undefined' && wx?.cloud) {
+        wx.cloud.init({ env: 'cloud1-2gltl8c72b1bc894', traceUser: true });
     }
 }
 
+// 在确认是微信环境时调用
+if (isWechat()) {
+    initCloud();
+}
+
 /**
- * 数据库查询条件
+ * 查询条件（兼容旧接口）
  */
-export interface QueryCondition {
-    /** 查询条件 */
+export interface QueryConditionOld {
     where?: Record<string, any>;
-    /** 排序字段，传入字段名，正序 */
     orderBy?: string;
-    /** 排序字段，倒序 */
     orderByDesc?: string;
-    /** 返回记录数量 */
     limit?: number;
-    /** 跳过记录数量（用于分页） */
     skip?: number;
 }
 
 /**
- * 云开发数据库服务
- * 使用微信小游戏原生 API 操作云数据库
+ * 数据库服务（单例）
+ * 根据运行平台自动选择底层实现
  */
 export class CloudbaseDBService {
     private static _instance: CloudbaseDBService = null;
@@ -56,259 +46,271 @@ export class CloudbaseDBService {
         return CloudbaseDBService._instance;
     }
 
-    /**
-     * 获取数据库实例
-     */
+    private get isLocal(): boolean {
+        return !isWechat();
+    }
+
     private getDB() {
-        
-        // if (typeof (wx) === 'undefined' || !wx.cloud) {
-        //     console.warn('不在微信小游戏环境中');
-        //     return null;
-        // }
-        // return wx.cloud.database();
-        initCloud();  // ← 增加这一行
-        if (typeof wx === 'undefined' || !wx || !wx.cloud) {
-            console.warn('不在微信小游戏环境中或 wx.cloud 不可用');
+        if (this.isLocal) return null;
+        try {
+            return wx.cloud.database();
+        } catch (e) {
+            console.error('[CloudbaseService] Failed to get wx.cloud.database():', e);
             return null;
         }
-        return wx.cloud.database();
     }
 
-    /**
-     * 查询记录列表
-     */
-    query<T = any>(collectionName: string, condition: QueryCondition = {}): Promise<T[]> {
-        const db = this.getDB();
-        if (!db) return Promise.resolve([]);
-
-        let query: any = db.collection(collectionName);
-
-        if (condition.where) {
-            query = query.where(condition.where);
-        }
-
-        if (condition.orderByDesc) {
-            query = query.orderBy(condition.orderByDesc, 'desc');
-        } else if (condition.orderBy) {
-            query = query.orderBy(condition.orderBy, 'asc');
-        }
-
-        if (condition.skip) {
-            query = query.skip(condition.skip);
-        }
-        if (condition.limit) {
-            query = query.limit(condition.limit);
-        }
-
-        return query.get().then(res => {
-            console.log(`查询 ${collectionName} 成功，数量：${res.data.length}`);
-            return res.data as T[];
-        }).catch(error => {
-            console.error(`查询 ${collectionName} 失败：`, error);
-            return [];
-        });
+    private getLocalDB(collectionName: string): LocalStorageDBService {
+        return localCollection(collectionName);
     }
 
-    /**
-     * 根据ID查询单条记录
-     */
-    getById<T = any>(collectionName: string, docId: string): Promise<T | null> {
-        const db = this.getDB();
-        if (!db) return Promise.resolve(null);
+    private convertOldConditions(conditions?: QueryConditionOld): QueryCondition[] | undefined {
+        if (!conditions?.where) return undefined;
+        // 使用 Object.keys 代替 Object.entries
+        return Object.keys(conditions.where).map((field) => ({
+            field,
+            op: '==' as const,
+            value: conditions.where![field]
+        }));
+    }
 
-        return db.collection(collectionName).doc(docId).get().then(res => {
-            if (res.data) {
-                return res.data as T;
+    private convertOldSort(conditions?: QueryConditionOld): SortRule | undefined {
+        if (conditions?.orderBy) {
+            return { field: conditions.orderBy, order: 'asc' };
+        }
+        if (conditions?.orderByDesc) {
+            return { field: conditions.orderByDesc, order: 'desc' };
+        }
+        return undefined;
+    }
+
+    private convertOldPage(conditions?: QueryConditionOld): PageParams | undefined {
+        if (!conditions?.limit) return undefined;
+        return { limit: conditions.limit, offset: conditions.skip };
+    }
+
+    async query<T = any>(collectionName: string, conditions?: QueryConditionOld): Promise<T[]> {
+        if (this.isLocal) {
+            const db = this.getLocalDB(collectionName);
+            const queryConds = this.convertOldConditions(conditions);
+            const sort = this.convertOldSort(conditions);
+            const page = this.convertOldPage(conditions);
+            return await db.query<T>(queryConds, sort, page);
+        }
+
+        const db = this.getDB();
+        if (!db) return [];
+
+        try {
+            let ref = db.collection(collectionName);
+            if (conditions?.where) {
+                ref = ref.where(conditions.where);
             }
+            if (conditions?.orderBy) {
+                ref = ref.orderBy(conditions.orderBy, 'asc');
+            }
+            if (conditions?.orderByDesc) {
+                ref = ref.orderBy(conditions.orderByDesc, 'desc');
+            }
+            if (conditions?.skip) {
+                ref = ref.skip(conditions.skip);
+            }
+            if (conditions?.limit) {
+                ref = ref.limit(conditions.limit);
+            }
+            const res = await ref.get();
+            return (res.data || []) as T[];
+        } catch (e) {
+            console.error(`[CloudbaseService] query("${collectionName}") failed:`, e);
+            return [];
+        }
+    }
+
+    async getById<T = any>(collectionName: string, id: string): Promise<T | null> {
+        if (this.isLocal) {
+            const db = this.getLocalDB(collectionName);
+            return await db.getById<T>(id);
+        }
+
+        const db = this.getDB();
+        if (!db) return null;
+
+        try {
+            const res = await db.collection(collectionName).doc(id).get();
+            return res.data as T || null;
+        } catch (e) {
+            console.error(`[CloudbaseService] getById("${collectionName}", "${id}") failed:`, e);
             return null;
-        }).catch(error => {
+        }
+    }
+
+    async add(collectionName: string, data: Record<string, any>): Promise<string | null> {
+        if (this.isLocal) {
+            const db = this.getLocalDB(collectionName);
+            return await db.add(data);
+        }
+
+        const db = this.getDB();
+        if (!db) return null;
+
+        try {
+            const res = await db.collection(collectionName).add({ data });
+            return res._id || null;
+        } catch (e) {
+            console.error(`[CloudbaseService] add("${collectionName}") failed:`, e);
             return null;
-        });
+        }
     }
 
-    /**
-     * 新增记录（自动生成ID）
-     */
-    add(collectionName: string, data: Record<string, any>): Promise<string | null> {
+    async update(collectionName: string, id: string, data: Record<string, any>): Promise<boolean> {
+        if (this.isLocal) {
+            const db = this.getLocalDB(collectionName);
+            return await db.update(id, data);
+        }
+
         const db = this.getDB();
-        if (!db) return Promise.resolve(null);
+        if (!db) return false;
 
-        return db.collection(collectionName).add({
-            data: data
-        }).then(res => {
-            console.log(`新增 ${collectionName} 成功，ID：${res._id}`);
-            return String(res._id);
-        }).catch(error => {
-            console.error(`新增 ${collectionName} 失败：`, error);
-            return null;
-        });
-    }
-
-    /**
-     * 更新记录（只更新指定字段）
-     */
-    update(collectionName: string, docId: string, data: Record<string, any>): Promise<boolean> {
-        const db = this.getDB();
-        if (!db) return Promise.resolve(false);
-
-        // 排除 _id 字段
-        const { _id, ...updateData } = data;
-
-        return db.collection(collectionName).doc(docId).update({
-            data: updateData
-        }).then(res => {
-            console.log(`更新 ${collectionName}/${docId} 成功，更新了 ${res.stats.updated} 条`);
+        try {
+            await db.collection(collectionName).doc(id).update({ data });
             return true;
-        }).catch(error => {
-            console.error(`更新 ${collectionName}/${docId} 失败：`, error);
+        } catch (e) {
+            console.error(`[CloudbaseService] update("${collectionName}", "${id}") failed:`, e);
             return false;
-        });
+        }
     }
 
-    /**
-     * 删除记录
-     */
-    delete(collectionName: string, docId: string): Promise<boolean> {
-        const db = this.getDB();
-        if (!db) return Promise.resolve(false);
+    async delete(collectionName: string, id: string): Promise<boolean> {
+        if (this.isLocal) {
+            const db = this.getLocalDB(collectionName);
+            return await db.delete(id);
+        }
 
-        return db.collection(collectionName).doc(docId).remove().then(res => {
-            console.log(`删除 ${collectionName}/${docId} 成功，删除了 ${res.stats.removed} 条`);
+        const db = this.getDB();
+        if (!db) return false;
+
+        try {
+            await db.collection(collectionName).doc(id).remove();
             return true;
-        }).catch(error => {
-            console.error(`删除 ${collectionName}/${docId} 失败：`, error);
+        } catch (e) {
+            console.error(`[CloudbaseService] delete("${collectionName}", "${id}") failed:`, e);
             return false;
-        });
+        }
     }
 
-    /**
-     * 根据条件删除记录
-     */
-    deleteWhere(collectionName: string, where: Record<string, any>): Promise<number> {
-        const db = this.getDB();
-        if (!db) return Promise.resolve(0);
-
-        return db.collection(collectionName).where(where).remove().then(res => {
-            console.log(`删除 ${collectionName} 符合条件的记录，数量：${res.stats.removed}`);
-            return res.stats.removed || 0;
-        }).catch(error => {
-            console.error(`删除 ${collectionName} 失败：`, error);
-            return 0;
-        });
-    }
-
-    /**
-     * upsert 操作：直接使用 set，如果不存在则新增，存在则替换
-     */
-    upsert(collectionName: string, docId: string, data: Record<string, any>): Promise<boolean> {
-        const db = this.getDB();
-        if (!db) return Promise.resolve(false);
-        
-        // 排除 _id 字段（docId 已经通过 doc() 指定）
-        const { _id, ...updateData } = data;
-        
-        return db.collection(collectionName).doc(docId).set({
-            data: updateData
-        }).then(res => {
-            console.log(`upsert ${collectionName}/${docId} 成功, stats:`, res.stats);
-            return true;
-        }).catch(error => {
-            console.error(`upsert ${collectionName}/${docId} 失败：`, error);
-            return false;
-        });
-    }
-
-    /**
-     * 分页查询
-     */
-    queryByPage<T = any>(
+    async upsert(
         collectionName: string,
-        page: number = 1,
-        pageSize: number = 10,
-        where: Record<string, any> = {},
-        orderBy?: string,
-        orderByDesc: boolean = false
-    ): Promise<{
-        data: T[];
-        total: number;
-        page: number;
-        pageSize: number;
-        totalPages: number;
-    }> {
+        whereFields: Record<string, any>,
+        data: Record<string, any>
+    ): Promise<string | null> {
+        if (this.isLocal) {
+            const db = this.getLocalDB(collectionName);
+            return await db.upsert(whereFields, data);
+        }
+
         const db = this.getDB();
-        if (!db) return Promise.resolve({ data: [], total: 0, page, pageSize, totalPages: 0 });
+        if (!db) return null;
 
-        let query: any = db.collection(collectionName);
-
-        if (Object.keys(where).length > 0) {
-            query = query.where(where);
+        try {
+            const existing = await db.collection(collectionName).where(whereFields).get();
+            if (existing.data && existing.data.length > 0) {
+                const docId = existing.data[0]._id;
+                await db.collection(collectionName).doc(docId).update({ data });
+                return docId;
+            }
+            const res = await db.collection(collectionName).add({ data: { ...whereFields, ...data } });
+            return res._id || null;
+        } catch (e) {
+            console.error(`[CloudbaseService] upsert("${collectionName}") failed:`, e);
+            return null;
         }
-
-        if (orderBy) {
-            query = query.orderBy(orderBy, orderByDesc ? 'desc' : 'asc');
-        }
-
-        const skip = (page - 1) * pageSize;
-
-        let countQuery: any = db.collection(collectionName);
-        if (Object.keys(where).length > 0) {
-            countQuery = countQuery.where(where);
-        }
-
-        return Promise.all([
-            query.skip(skip).limit(pageSize).get(),
-            countQuery.count()
-        ]).then(([dataRes, countRes]) => {
-            const total = countRes.total;
-            const totalPages = Math.ceil(total / pageSize);
-            return {
-                data: dataRes.data as T[],
-                total,
-                page,
-                pageSize,
-                totalPages
-            };
-        }).catch(error => {
-            console.error(`分页查询 ${collectionName} 失败：`, error);
-            return { data: [], total: 0, page, pageSize, totalPages: 0 };
-        });
     }
 
-    /**
-     * 批量新增
-     */
-    batchAdd(collectionName: string, dataArray: Record<string, any>[]): Promise<string[]> {
-        const promises = dataArray.map(data => this.add(collectionName, data));
-        return Promise.all(promises).then(ids => {
-            return ids.filter(id => id !== null) as string[];
-        });
+    async queryByPage<T = any>(
+        collectionName: string,
+        conditions: QueryConditionOld,
+        sortField: string,
+        sortOrder: 'asc' | 'desc' = 'desc',
+        pageSize: number = 20,
+        pageNum: number = 1
+    ): Promise<{ data: T[]; total: number }> {
+        if (this.isLocal) {
+            const db = this.getLocalDB(collectionName);
+            const queryConds = this.convertOldConditions(conditions);
+            const sort: SortRule = { field: sortField, order: sortOrder };
+            const page: PageParams = { limit: pageSize, offset: (pageNum - 1) * pageSize };
+            return await db.queryByPage<T>(queryConds, sort, page);
+        }
+
+        const db = this.getDB();
+        if (!db) return { data: [], total: 0 };
+
+        try {
+            const countRes = await db.collection(collectionName).where(conditions.where || {}).count();
+            const total = countRes.total || 0;
+
+            let ref = db.collection(collectionName);
+            if (conditions.where) {
+                ref = ref.where(conditions.where);
+            }
+            ref = ref.orderBy(sortField, sortOrder);
+            ref = ref.skip((pageNum - 1) * pageSize);
+            ref = ref.limit(pageSize);
+
+            const res = await ref.get();
+            return { data: (res.data || []) as T[], total };
+        } catch (e) {
+            console.error(`[CloudbaseService] queryByPage("${collectionName}") failed:`, e);
+            return { data: [], total: 0 };
+        }
+    }
+
+    async batchAdd(collectionName: string, dataArray: Record<string, any>[]): Promise<string[]> {
+        if (this.isLocal) {
+            const db = this.getLocalDB(collectionName);
+            const docs = await db.batchAdd(dataArray);
+            return docs.map(doc => doc._id);
+        }
+
+        const db = this.getDB();
+        if (!db) return [];
+
+        try {
+            const promises = dataArray.map(data => this.add(collectionName, data));
+            return Promise.all(promises).then(ids => {
+                return ids.filter(id => id !== null) as string[];
+            });
+        } catch (e) {
+            console.error(`[CloudbaseService] batchAdd("${collectionName}") failed:`, e);
+            return [];
+        }
     }
 }
 
 export default CloudbaseDBService.getInstance();
 
 /**
- * 调用云函数
+ * 调用云函数（平台感知）
  */
 export function callFunction(name: string, data: Record<string, any> = {}): Promise<any> {
-    // if (typeof (wx) === 'undefined' || !wx.cloud) {
-    //     console.warn('不在微信小游戏环境中或 wx.cloud 不可用');
-    //     return Promise.resolve({ result: { success: false, error: 'not in wechat environment' } });
-    // }
-    initCloud();  // ← 增加这一行
-    if (typeof wx === 'undefined' || !wx || !wx.cloud) {
-        console.warn('不在微信小游戏环境中，云函数调用被跳过');
-        return Promise.resolve({ result: { success: false, error: 'not in wechat mini game' } });
+    if (isWechat()) {
+        if (typeof wx === 'undefined' || !wx.cloud) {
+            console.warn('wx.cloud not available');
+            return Promise.resolve({ result: { success: false, error: 'wx.cloud not available' } });
+        }
+
+        return wx.cloud.callFunction({
+            name: name,
+            data: data
+        }).then(res => {
+            console.log(`Cloud function "${name}" returned successfully`);
+            return res;
+        }).catch(error => {
+            console.error(`Cloud function "${name}" failed:`, error);
+            return { result: { success: false, error: error.message || error.errMsg } };
+        });
     }
-    
-    return wx.cloud.callFunction({
-        name: name,
-        data: data
-    }).then(res => {
-        console.log(`云函数 ${name} 返回成功`);
-        return res;
-    }).catch(error => {
-        console.error(`调用云函数 ${name} 失败:`, error);
-        return { result: { success: false, error: error.message || error.errMsg } };
-    });
+
+    console.warn(`[CloudbaseService] callFunction("${name}") is not available in local mode`);
+    return Promise.resolve({ result: { success: false, error: 'not in wechat environment', localMode: true } });
 }

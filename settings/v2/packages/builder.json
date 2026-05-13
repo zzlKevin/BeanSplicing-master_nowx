@@ -52,7 +52,8 @@
   },
   "splash-setting": {
     "logo": {
-      "type": "none"
+      "type": "none",
+      "image": "project://settings/appico.png"
     },
     "background": {
       "type": "custom",

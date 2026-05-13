@@ -3031,7 +3031,7 @@
     "__prefab": null,
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 187,
+      "width": 235,
       "height": 93
     },
     "_anchorPoint": {
@@ -3062,7 +3062,7 @@
       "a": 255
     },
     "_spriteFrame": {
-      "__uuid__": "76fcc9f2-75c0-4c0d-922f-5f7dc7be8838@f9941",
+      "__uuid__": "944e376f-3f8e-4d10-a3e7-0f08eb34c737@f9941",
       "__expectedType__": "cc.SpriteFrame"
     },
     "_type": 0,
@@ -3145,7 +3145,7 @@
     },
     "_anchorPoint": {
       "__type__": "cc.Vec2",
-      "x": 0.5,
+      "x": 0.9,
       "y": 0.5
     },
     "_id": "9bXRFM4XlDvJCU4hRUeQaR"
@@ -3176,7 +3176,7 @@
     },
     "_type": 0,
     "_fillType": 0,
-    "_sizeMode": 1,
+    "_sizeMode": 0,
     "_fillCenter": {
       "__type__": "cc.Vec2",
       "x": 0,
@@ -3257,7 +3257,7 @@
     },
     "_anchorPoint": {
       "__type__": "cc.Vec2",
-      "x": 0.5,
+      "x": 1,
       "y": 0.5
     },
     "_id": "f7QUI7OblKeal/F8xwej9U"
@@ -7252,6 +7252,9 @@
     },
     "power_btn": {
       "__id__": 62
+    },
+    "coin_btn": {
+      "__id__": 79
     },
     "pyq_btn": {
       "__id__": 100
